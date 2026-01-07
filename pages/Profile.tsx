@@ -74,7 +74,24 @@ const Profile: React.FC = () => {
     );
   }
 
-  const personalFeed = feed.filter(t => t.fromUser.id === currentUser.id || t.toUser?.id === currentUser.id);
+  // Your Activity: 显示所有与当前用户相关的交易，但如果有对应的 Activity 支付记录，则只显示 Activity 记录，不显示原始 Request
+  const personalFeed = feed.filter(t => {
+    const isRelated = t.fromUser.id === currentUser.id || t.toUser?.id === currentUser.id;
+    if (!isRelated) return false;
+    
+    // 如果是 Request 类型的交易，检查是否存在对应的 Activity 支付记录
+    if (t.type === TransactionType.REQUEST && t.isOTC) {
+      const hasActivityRecord = feed.some(
+        activity => activity.relatedTransactionId === t.id && 
+                   activity.type === TransactionType.PAYMENT &&
+                   (activity.fromUser.id === currentUser.id || activity.toUser?.id === currentUser.id)
+      );
+      // 如果存在 Activity 记录，则不显示原始 Request
+      if (hasActivityRecord) return false;
+    }
+    
+    return true;
+  });
 
   // Updated filter: Capture all active OTC requests involving the user
   const pendingRequests = feed.filter(t => {
@@ -234,16 +251,28 @@ const Profile: React.FC = () => {
                                        </div>
                                        
                                        {/* Highlight State in Activity */}
-                                       {t.isOTC && t.otcState !== OTCState.COMPLETED && (
-                                           <div className="mt-1.5 flex items-center gap-2">
-                                               {(t.otcState === OTCState.AWAITING_FIAT_CONFIRMATION || t.otcState === OTCState.AWAITING_FIAT_PAYMENT) && (
-                                                   <span className="text-[9px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                       <Loader className="w-2.5 h-2.5 animate-spin" />
-                                                       {t.fromUser.id === currentUser.id ? "Need to release USDT" : `Waiting for ${t.fromUser.name} to release`}
-                                                   </span>
+                                       {(() => {
+                                         // 如果是 Activity 支付记录（有 relatedTransactionId），需要查找原始 Request 来获取状态
+                                         let originalRequest = null;
+                                         if (t.relatedTransactionId) {
+                                           originalRequest = feed.find(r => r.id === t.relatedTransactionId);
+                                         }
+                                         const requestToCheck = originalRequest || t;
+                                         
+                                         if (requestToCheck.isOTC && requestToCheck.otcState !== OTCState.COMPLETED) {
+                                           return (
+                                             <div className="mt-1.5 flex items-center gap-2">
+                                               {(requestToCheck.otcState === OTCState.AWAITING_FIAT_CONFIRMATION || requestToCheck.otcState === OTCState.AWAITING_FIAT_PAYMENT) && (
+                                                 <span className="text-[9px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                   <Loader className="w-2.5 h-2.5 animate-spin" />
+                                                   {requestToCheck.fromUser.id === currentUser.id ? "Need to release USDT" : `Waiting for ${requestToCheck.fromUser.name} to release`}
+                                                 </span>
                                                )}
-                                           </div>
-                                       )}
+                                             </div>
+                                           );
+                                         }
+                                         return null;
+                                       })()}
                                    </div>
                               </div>
                             );

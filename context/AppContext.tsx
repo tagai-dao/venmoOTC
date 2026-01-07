@@ -109,6 +109,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addTransaction = async (t: Omit<Transaction, 'id' | 'timestamp'>) => {
     try {
+      // 验证：支付时不能给自己转账
+      if (t.type === TransactionType.PAYMENT && t.toUser && t.fromUser.id === t.toUser.id) {
+        throw new Error('不能给自己转账，请选择其他收款人');
+      }
+
       // 1. If it's Public on X, Post to X first
       let xPostId: string | undefined;
       if (t.privacy === Privacy.PUBLIC_X && t.type === TransactionType.REQUEST) {
@@ -140,51 +145,253 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const updateTransaction = async (id: string, updates: Partial<Transaction> & { newReply?: TransactionReply }) => {
     try {
-      // Handling updates requires finding the transaction first to check context
+      // 0. 找到当前交易上下文
       const tx = feed.find(t => t.id === id);
       if (!tx) {
-        console.error('Transaction not found:', id);
+        console.error('Transaction not found in local state:', id);
         return;
       }
 
-      // 1. Blockchain Payment Logic (Pay USDT)
+      let activityTransaction: Transaction | null = null;
+
+      // 1. 区块链逻辑 + 生成第一笔支付的 Activity（仅创建一次，避免重复）
+      // 情况 1：USDT Request - 支付 USDT（从 OPEN_REQUEST -> AWAITING_FIAT_PAYMENT）
       if (updates.otcState === OTCState.AWAITING_FIAT_PAYMENT && tx.otcState === OTCState.OPEN_REQUEST) {
-          const payer = updates.toUser || tx.toUser;
-          if (payer?.id === currentUser?.id && tx.currency === Currency.USDT && currentUser) {
-              // Call BNB Chain Service
+        const payer = updates.toUser || tx.toUser;
+        if (payer?.id === currentUser?.id && currentUser) {
+          // 检查是否已经存在相关的 Activity 记录，避免重复创建
+          const existingActivity = feed.find(
+            t => t.relatedTransactionId === tx.id && 
+                 t.type === TransactionType.PAYMENT &&
+                 ((tx.currency === Currency.USDT && t.currency === Currency.USDT && t.fromUser.id === currentUser.id && t.toUser?.id === tx.fromUser.id) ||
+                  (tx.currency !== Currency.USDT && t.currency === tx.currency && t.fromUser.id === currentUser.id && t.toUser?.id === tx.fromUser.id))
+          );
+
+          if (!existingActivity) {
+            if (tx.currency === Currency.USDT) {
+              // 1.1 直接从当前用户打 USDT 给请求者
               await Services.blockchain.sendUSDT(tx.fromUser.walletAddress, tx.amount, currentUser.walletAddress);
               setWalletBalance(b => ({ ...b, [Currency.USDT]: b[Currency.USDT] - tx.amount }));
+
+              // 1.2 记录一条 USDT Payment 的 Activity（双方 Your Activity 均可看到）
+              try {
+                const activityPayload: Omit<Transaction, 'id' | 'timestamp'> = {
+                  fromUser: currentUser,
+                  toUser: tx.fromUser,
+                  amount: tx.amount,
+                  currency: Currency.USDT,
+                  note: tx.note ? `${tx.note} (USDT payment)` : 'USDT payment for request',
+                  sticker: tx.sticker,
+                  privacy: tx.privacy,
+                  type: TransactionType.PAYMENT,
+                  isOTC: tx.isOTC,
+                  otcState: OTCState.NONE,
+                  otcFiatCurrency: tx.otcFiatCurrency,
+                  otcOfferAmount: tx.otcOfferAmount,
+                  likes: 0,
+                  comments: 0,
+                  replies: [],
+                  xPostId: tx.xPostId,
+                  relatedTransactionId: tx.id,
+                };
+                activityTransaction = await Services.transactions.createTransaction(activityPayload);
+              } catch (e) {
+                console.warn('Failed to create USDT payment activity transaction:', e);
+              }
+            } else {
+              // 情况 2：法币 Request - 支付法币（Off-chain Fiat Payment）
+              // 在 Your Activity 中也记录一条法币 Payment
+              if (tx.fromUser && currentUser && tx.amount > 0) {
+                try {
+                  const activityPayload: Omit<Transaction, 'id' | 'timestamp'> = {
+                    fromUser: currentUser,
+                    toUser: tx.fromUser,
+                    amount: tx.amount,
+                    currency: tx.currency,
+                    note: tx.note ? `${tx.note} (Fiat payment)` : 'Fiat payment for OTC request',
+                    sticker: tx.sticker,
+                    privacy: tx.privacy,
+                    type: TransactionType.PAYMENT,
+                    isOTC: tx.isOTC,
+                    otcState: OTCState.NONE,
+                    otcFiatCurrency: tx.otcFiatCurrency,
+                    otcOfferAmount: tx.otcOfferAmount,
+                    likes: 0,
+                    comments: 0,
+                    replies: [],
+                    xPostId: tx.xPostId,
+                    relatedTransactionId: tx.id,
+                  };
+                  activityTransaction = await Services.transactions.createTransaction(activityPayload);
+                } catch (e) {
+                  console.warn('Failed to create fiat payment activity transaction:', e);
+                }
+              }
+            }
+          } else {
+            console.log('Activity record already exists for this payment, skipping duplicate creation');
           }
+        }
+      }
+      
+      // 情况 3：法币 Request - 支付 USDT（从 AWAITING_FIAT_PAYMENT -> COMPLETED）
+      if (updates.otcState === OTCState.COMPLETED && tx.otcState === OTCState.AWAITING_FIAT_PAYMENT) {
+        const isFiatRequest = tx.currency !== Currency.USDT;
+        if (isFiatRequest && tx.fromUser.id === currentUser?.id && currentUser && tx.toUser) {
+          const usdtAmount = tx.otcOfferAmount || 0;
+          if (usdtAmount > 0) {
+            // 检查是否已经存在相关的 USDT Payment Activity 记录
+            const existingActivity = feed.find(
+              t => t.relatedTransactionId === tx.id && 
+                   t.type === TransactionType.PAYMENT &&
+                   t.currency === Currency.USDT &&
+                   t.fromUser.id === currentUser.id &&
+                   t.toUser?.id === tx.toUser.id &&
+                   t.amount === usdtAmount
+            );
+
+            if (!existingActivity) {
+              // 3.1 区块链打 USDT
+              await Services.blockchain.sendUSDT(tx.toUser.walletAddress, usdtAmount, currentUser.walletAddress);
+              setWalletBalance(b => ({ ...b, [Currency.USDT]: b[Currency.USDT] - usdtAmount }));
+
+              // 3.2 记录一条 USDT Payment 的 Activity
+              try {
+                const activityPayload: Omit<Transaction, 'id' | 'timestamp'> = {
+                  fromUser: currentUser,
+                  toUser: tx.toUser,
+                  amount: usdtAmount,
+                  currency: Currency.USDT,
+                  note: tx.note ? `${tx.note} (USDT release)` : 'USDT payment for fiat OTC',
+                  sticker: tx.sticker,
+                  privacy: tx.privacy,
+                  type: TransactionType.PAYMENT,
+                  isOTC: tx.isOTC,
+                  otcState: OTCState.COMPLETED,
+                  otcFiatCurrency: tx.currency,
+                  otcOfferAmount: tx.amount,
+                  likes: 0,
+                  comments: 0,
+                  replies: [],
+                  xPostId: tx.xPostId,
+                  relatedTransactionId: tx.id,
+                };
+                activityTransaction = await Services.transactions.createTransaction(activityPayload);
+              } catch (e) {
+                console.warn('Failed to create USDT payment activity transaction (fiat request):', e);
+              }
+            } else {
+              console.log('USDT payment activity record already exists for this transaction, skipping duplicate creation');
+            }
+          }
+        }
+      }
+
+      // 情况 4：USDT Request - 支付法币（从 AWAITING_FIAT_PAYMENT -> AWAITING_FIAT_CONFIRMATION）
+      if (updates.otcState === OTCState.AWAITING_FIAT_CONFIRMATION && tx.otcState === OTCState.AWAITING_FIAT_PAYMENT && tx.currency === Currency.USDT) {
+        if (tx.otcFiatCurrency && tx.otcOfferAmount && tx.toUser && tx.fromUser) {
+          // 检查是否已经存在相关的法币 Payment Activity 记录
+          const existingActivity = feed.find(
+            t => t.relatedTransactionId === tx.id && 
+                 t.type === TransactionType.PAYMENT &&
+                 t.currency === tx.otcFiatCurrency &&
+                 t.fromUser.id === tx.fromUser.id &&
+                 t.toUser?.id === tx.toUser.id &&
+                 t.amount === tx.otcOfferAmount
+          );
+
+          if (!existingActivity) {
+            // 在 Activity 中记录一条法币 Payment：从 Request 发起人 -> 支付 USDT 的人
+            const fiatAmount = tx.otcOfferAmount;
+            const fiatCurrency = tx.otcFiatCurrency;
+            try {
+              const activityPayload: Omit<Transaction, 'id' | 'timestamp'> = {
+                fromUser: tx.fromUser,
+                toUser: tx.toUser,
+                amount: fiatAmount,
+                currency: fiatCurrency,
+                note: tx.note ? `${tx.note} (Fiat payment)` : 'Fiat payment for USDT OTC',
+                sticker: tx.sticker,
+                privacy: tx.privacy,
+                type: TransactionType.PAYMENT,
+                isOTC: tx.isOTC,
+                otcState: OTCState.NONE,
+                otcFiatCurrency: tx.otcFiatCurrency,
+                otcOfferAmount: tx.otcOfferAmount,
+                likes: 0,
+                comments: 0,
+                replies: [],
+                xPostId: tx.xPostId,
+                relatedTransactionId: tx.id,
+              };
+              activityTransaction = await Services.transactions.createTransaction(activityPayload);
+            } catch (e) {
+              console.warn('Failed to create fiat payment activity transaction (USDT request):', e);
+            }
+          } else {
+            console.log('Fiat payment activity record already exists for this transaction, skipping duplicate creation');
+          }
+        }
       }
 
       // 2. Social Logic (Reply on X)
-      if (updates.newReply && tx.privacy === Privacy.PUBLIC_X && tx.xPostId) {
+      if (updates.newReply) {
+        // 如果是公开在 X 上的交易，发布回复到 X
+        if (tx.privacy === Privacy.PUBLIC_X && tx.xPostId) {
           const replyContent = updates.newReply.text;
           await Services.social.replyToTweet(tx.xPostId, replyContent);
+        }
+        
+        // 验证：如果状态从 AWAITING_FIAT_PAYMENT 变为 AWAITING_FIAT_CONFIRMATION，必须要有回复
+        if (updates.otcState === OTCState.AWAITING_FIAT_CONFIRMATION && tx.otcState === OTCState.AWAITING_FIAT_PAYMENT) {
+          if (!updates.newReply || (!updates.newReply.text && !updates.newReply.proof)) {
+            throw new Error('发布回复后才能确认。请添加回复内容或上传转账截图。');
+          }
+        }
+      } else if (updates.otcState === OTCState.AWAITING_FIAT_CONFIRMATION && tx.otcState === OTCState.AWAITING_FIAT_PAYMENT) {
+        // 如果没有回复但状态要变为 AWAITING_FIAT_CONFIRMATION，抛出错误
+        throw new Error('必须发布回复并附上转账截图后才能确认。');
       }
 
       // 3. Update transaction via API
-      const updatedTransaction = await Services.transactions.updateTransaction(id, updates);
+      let updatedTransaction: Transaction;
+      try {
+        updatedTransaction = await Services.transactions.updateTransaction(id, updates);
+      } catch (error: any) {
+        // 如果后端返回 404（例如：内存中的 mock 交易列表不同步），在前端优雅降级为本地更新
+        const message = error?.message || '';
+        if (message.includes('Not Found') || message.includes('Transaction not found')) {
+          console.warn('Backend transaction not found, applying local fallback update for id:', id);
 
-      // 4. Update local state
-      setFeed((prev) => {
-        return prev.map(t => {
-          if (t.id === id) {
-            // Logic for releasing escrow (USDT)
-            if (updates.otcState === OTCState.COMPLETED && t.otcState !== OTCState.COMPLETED) {
-               const requesterId = t.fromUser.id;
-               if (t.currency !== Currency.USDT) {
-                   if (requesterId === currentUser?.id) {
-                       // Requester releases USDT now
-                       const amountToDeduct = t.otcOfferAmount || 0;
-                       setWalletBalance(b => ({ ...b, [Currency.USDT]: b[Currency.USDT] - amountToDeduct }));
-                   }
-               }
-            }
-            return updatedTransaction;
+          // 本地构造一个更新后的交易对象
+          const base: Transaction = { ...tx };
+
+          // 处理回复
+          let replies = base.replies || [];
+          let comments = base.comments || 0;
+          if (updates.newReply) {
+            replies = [...replies, updates.newReply];
+            comments = comments + 1;
           }
-          return t;
-        });
+
+          updatedTransaction = {
+            ...base,
+            ...updates,
+            replies,
+            comments,
+          };
+        } else {
+          throw error;
+        }
+      }
+
+      // 4. 更新本地 feed：先更新原始 Request，再在顶部插入 Activity 记录
+      setFeed((prev) => {
+        const mapped = prev.map(t => (t.id === id ? updatedTransaction : t));
+        if (activityTransaction) {
+          return [activityTransaction, ...mapped];
+        }
+        return mapped;
       });
     } catch (error) {
       console.error('Failed to update transaction:', error);

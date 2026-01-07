@@ -54,6 +54,14 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
     const numAmount = parseFloat(amount);
     if (!amount || isNaN(numAmount) || numAmount <= 0) return;
 
+    if (!currentUser) return;
+
+    // 验证：支付时不能给自己转账
+    if (transactionType === TransactionType.PAYMENT && selectedUser && selectedUser.id === currentUser.id) {
+      alert('不能给自己转账，请选择其他收款人');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const isOTC = transactionType === TransactionType.REQUEST;
@@ -89,8 +97,6 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
         const rateDisplay = `(@ ${rate})`;
         finalNote = `${note.trim()}${directionTag} ${rateDisplay}`;
     }
-
-    if (!currentUser) return;
     
     await addTransaction({
       fromUser: currentUser,
