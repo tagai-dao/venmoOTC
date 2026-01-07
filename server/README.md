@@ -19,7 +19,26 @@ cd server
 npm install
 ```
 
-### 2. 配置环境变量
+### 2. 设置数据库
+
+#### 2.1 安装 PostgreSQL
+
+确保你的系统已安装 PostgreSQL（建议版本 12+）。
+
+#### 2.2 创建数据库
+
+```bash
+# 使用 psql 连接到 PostgreSQL
+psql -U postgres
+
+# 创建数据库
+CREATE DATABASE venmootc;
+
+# 退出
+\q
+```
+
+#### 2.3 配置环境变量
 
 复制 `.env.example` 到 `.env` 并填写配置：
 
@@ -27,13 +46,26 @@ npm install
 cp .env.example .env
 ```
 
-编辑 `.env` 文件，填入你的 API 密钥和配置。
+编辑 `.env` 文件，填入数据库配置：
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=venmootc
+DB_USER=postgres
+DB_PASSWORD=your_password
+```
 
 ### 3. 运行开发服务器
 
 ```bash
 npm run dev
 ```
+
+服务器启动时会自动：
+- 测试数据库连接
+- 初始化数据库表结构
+- 导入初始种子数据（仅开发环境）
 
 服务器将在 `http://localhost:3001` 启动。
 
@@ -76,10 +108,35 @@ npm start
 
 详见 `.env.example` 文件。
 
+## 数据库
+
+项目使用 PostgreSQL 作为数据库。数据库结构包括：
+
+- **users** - 用户表
+- **transactions** - 交易表
+- **transaction_replies** - 交易回复表
+- **wallet_balances** - 钱包余额表
+
+数据库迁移脚本位于 `src/db/migrations/` 目录。
+
+### 手动运行迁移
+
+如果需要手动运行迁移：
+
+```bash
+# 连接到数据库
+psql -U postgres -d venmootc
+
+# 运行迁移脚本
+\i src/db/migrations/001_initial_schema.sql
+\i src/db/migrations/002_seed_data.sql
+```
+
 ## 注意事项
 
-- 当前使用内存存储，生产环境应替换为数据库（如 PostgreSQL、MongoDB）
+- 确保 PostgreSQL 服务正在运行
 - X API 和区块链功能需要配置相应的 API 密钥和私钥
 - 建议使用 JWT 进行身份验证
 - 生产环境应添加速率限制、请求验证等安全措施
+- 生产环境建议使用连接池和数据库备份策略
 

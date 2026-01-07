@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import { Currency } from '../types.js';
-import { mockBalances, generateTxHash } from '../mockData.js';
+import { generateTxHash } from '../mockData.js';
+import { WalletBalanceRepository } from '../db/repositories/walletBalanceRepository.js';
 
 /**
  * 获取钱包余额
- * 使用 Mock 数据返回余额
+ * 从数据库读取余额
  */
 export const getBalance = async (req: Request, res: Response) => {
   try {
@@ -16,29 +17,8 @@ export const getBalance = async (req: Request, res: Response) => {
     
     console.log(`📊 Querying balance for ${address}, currency: ${currency}`);
     
-    // 模拟 API 延迟
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // 从 mock 数据获取余额，如果没有则返回默认值
     const currencyEnum = currency as Currency;
-    const addressLower = address.toLowerCase();
-    
-    // 查找匹配的地址（不区分大小写）
-    const addressKey = Object.keys(mockBalances).find(
-      key => key.toLowerCase() === addressLower
-    );
-    
-    let balance = 0;
-    if (addressKey && mockBalances[addressKey] && mockBalances[addressKey][currencyEnum] !== undefined) {
-      balance = mockBalances[addressKey][currencyEnum];
-    } else {
-      // 默认余额
-      if (currencyEnum === Currency.USDT) {
-        balance = 1000.00;
-      } else if (currencyEnum === Currency.NGN) {
-        balance = 40000;
-      }
-    }
+    const balance = await WalletBalanceRepository.getBalance(address, currencyEnum);
     
     res.json({ 
       balance, 

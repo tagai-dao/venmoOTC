@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { LoginRequest, LoginResponse } from '../types.js';
-import { mockUsers } from '../mockData.js';
+import { UserRepository } from '../db/repositories/userRepository.js';
 
 /**
  * X (Twitter) 登录
- * 使用 Mock 数据返回用户信息
+ * 使用数据库查询用户信息
  * 支持通过 X handle 登录（测试用）
  */
 export const loginWithX = async (req: Request, res: Response) => {
@@ -21,30 +21,39 @@ export const loginWithX = async (req: Request, res: Response) => {
     // 模拟 API 延迟
     await new Promise(resolve => setTimeout(resolve, 1500));
     
-    let mockUser = mockUsers[0]; // 默认返回第一个用户
+    let user = null;
     
     // 如果提供了 xHandle，尝试根据 handle 查找用户
     if (xHandle) {
       const handle = xHandle.startsWith('@') ? xHandle : `@${xHandle}`;
-      const foundUser = mockUsers.find(u => u.handle.toLowerCase() === handle.toLowerCase());
+      user = await UserRepository.findByHandle(handle);
       
-      if (foundUser) {
-        mockUser = foundUser;
+      if (user) {
         console.log(`✅ Found user with handle: ${handle}`);
       } else {
-        console.log(`⚠️ User not found with handle: ${handle}, using default user`);
-        // 即使找不到用户，也返回默认用户，不返回错误
+        console.log(`⚠️ User not found with handle: ${handle}`);
+        // 如果找不到用户，返回错误
+        return res.status(404).json({ error: { message: `User with handle ${handle} not found` } });
+      }
+    } else {
+      // 如果没有提供 handle，尝试获取第一个用户（用于测试）
+      const allUsers = await UserRepository.findAll();
+      if (allUsers.length > 0) {
+        user = allUsers[0];
+        console.log(`✅ Using default user: ${user.handle}`);
+      } else {
+        return res.status(404).json({ error: { message: 'No users found in database' } });
       }
     }
     
-    console.log('✅ Privy Wallet Created: ' + mockUser.walletAddress);
+    console.log('✅ Privy Wallet Created: ' + user.walletAddress);
     
     const response: LoginResponse = {
-      user: mockUser,
-      token: 'mock_jwt_token_' + Date.now(), // Mock JWT token
+      user: user,
+      token: 'jwt_token_' + Date.now(), // JWT token
     };
     
-    console.log('📤 Sending login response:', JSON.stringify({ user: { id: mockUser.id, handle: mockUser.handle }, token: response.token }));
+    console.log('📤 Sending login response:', JSON.stringify({ user: { id: user.id, handle: user.handle }, token: response.token }));
     res.json(response);
   } catch (error: any) {
     console.error('❌ Login error:', error);
