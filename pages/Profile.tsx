@@ -10,14 +10,32 @@ const Profile: React.FC = () => {
   const [showMyQR, setShowMyQR] = useState(false);
   const [activeTab, setActiveTab] = useState<'activity' | 'requests'>('activity');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [xHandle, setXHandle] = useState('');
 
   const handleLogin = async () => {
+      if (!xHandle.trim()) {
+          alert('请输入 X 账号');
+          return;
+      }
       setIsLoggingIn(true);
-      await login();
-      setIsLoggingIn(false);
+      try {
+          await login(xHandle.trim());
+      } catch (error: any) {
+          console.error('Login error:', error);
+          const errorMessage = error?.message || '登录失败，请重试';
+          alert(`登录失败: ${errorMessage}\n\n请确保：\n1. 服务器正在运行 (http://localhost:3001)\n2. 输入的账号格式正确 (例如: @crypto_native 或 crypto_native)`);
+      } finally {
+          setIsLoggingIn(false);
+      }
   }
 
-  if (!isAuthenticated) {
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+          handleLogin();
+      }
+  }
+
+  if (!isAuthenticated || !currentUser) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white">
          <div className="w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center mb-6 shadow-xl shadow-blue-500/20">
@@ -26,16 +44,31 @@ const Profile: React.FC = () => {
          <h1 className="text-2xl font-bold mb-2">Welcome to VenmoOTC</h1>
          <p className="text-gray-500 text-center mb-8">The social way to pay and trade stablecoins.</p>
          
-         <button 
-            onClick={handleLogin}
-            disabled={isLoggingIn}
-            className="bg-black text-white w-full max-w-xs py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition disabled:opacity-70"
-        >
-             {isLoggingIn ? <Loader className="w-5 h-5 animate-spin" /> : <Twitter className="w-5 h-5" />}
-             {isLoggingIn ? 'Connecting via Privy...' : 'Continue with X'}
-         </button>
-         <p className="mt-4 text-xs text-gray-400 text-center max-w-[240px]">
-             Secure login via Privy. Creates an embedded wallet linked to your X account.
+         <div className="w-full max-w-xs space-y-3">
+            <div className="relative">
+               <Twitter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+               <input
+                  type="text"
+                  value={xHandle}
+                  onChange={(e) => setXHandle(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="输入 X 账号 (例如: @crypto_native)"
+                  disabled={isLoggingIn}
+                  className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-full outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition disabled:opacity-70 text-center"
+                  autoFocus
+               />
+            </div>
+            <button 
+               onClick={handleLogin}
+               disabled={isLoggingIn || !xHandle.trim()}
+               className="bg-black text-white w-full py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+               {isLoggingIn ? <Loader className="w-5 h-5 animate-spin" /> : <Twitter className="w-5 h-5" />}
+               {isLoggingIn ? '登录中...' : '登录'}
+            </button>
+         </div>
+         <p className="mt-4 text-xs text-gray-400 text-center max-w-[280px]">
+            测试模式：输入 X 账号即可登录。可用账号：@crypto_native, @sarah_j, @mike_otc, @bella_ciao
          </p>
       </div>
     );

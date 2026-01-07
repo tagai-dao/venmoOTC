@@ -1,7 +1,8 @@
 // Add TransactionReply to the types imported from types.ts and re-exported
 import { Currency, Privacy, Transaction, TransactionType, User, OTCState, TransactionReply } from './types';
 
-export { Currency, Privacy, Transaction, TransactionType, User, OTCState, TransactionReply };
+export { Currency, Privacy, TransactionType, OTCState };
+export type { Transaction, User, TransactionReply };
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 

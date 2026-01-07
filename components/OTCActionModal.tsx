@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { User, Currency, Privacy, TransactionType, OTCState, FRIENDS, generateId } from '../utils';
+import { User, Currency, Privacy, TransactionType, OTCState } from '../utils';
 import { X, Search, Globe, Users, Lock, ArrowDown, ChevronLeft, Twitter, Loader } from 'lucide-react';
 
 interface Props {
@@ -19,7 +19,7 @@ const EXCHANGE_RATES: Record<string, number> = {
 };
 
 const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionType.REQUEST, initialUser = null }) => {
-  const { addTransaction, currentUser } = useApp();
+  const { addTransaction, currentUser, friends } = useApp();
   const [step, setStep] = useState(initialUser ? 2 : 1);
   const [selectedUser, setSelectedUser] = useState<User | null>(initialUser);
   const [amount, setAmount] = useState('');
@@ -90,15 +90,15 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
         finalNote = `${note.trim()}${directionTag} ${rateDisplay}`;
     }
 
+    if (!currentUser) return;
+    
     await addTransaction({
-      id: generateId(),
       fromUser: currentUser,
       toUser: selectedUser,
       amount: finalAmount,
       currency: finalCurrency,
       note: finalNote,
       sticker: selectedSticker || undefined,
-      timestamp: Date.now(),
       privacy: privacy,
       type: transactionType,
       isOTC: isOTC,
@@ -167,19 +167,25 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
          ) : (
             <>
                 <p className="px-4 py-2 text-xs font-bold text-gray-500 uppercase mt-2">Top People</p>
-                {FRIENDS.map(f => (
-                <button 
-                    key={f.id} 
-                    onClick={() => { setSelectedUser(f); setStep(2); }}
-                    className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition"
-                >
-                    <img src={f.avatar} alt={f.name} className="w-12 h-12 rounded-full object-cover" />
-                    <div className="text-left">
-                    <p className="font-bold text-slate-900">{f.name}</p>
-                    <p className="text-sm text-slate-500">{f.handle}</p>
+                {friends.length > 0 ? (
+                    friends.map(f => (
+                        <button 
+                            key={f.id} 
+                            onClick={() => { setSelectedUser(f); setStep(2); }}
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition"
+                        >
+                            <img src={f.avatar} alt={f.name} className="w-12 h-12 rounded-full object-cover" />
+                            <div className="text-left">
+                            <p className="font-bold text-slate-900">{f.name}</p>
+                            <p className="text-sm text-slate-500">{f.handle}</p>
+                            </div>
+                        </button>
+                    ))
+                ) : (
+                    <div className="px-4 py-8 text-center text-gray-400">
+                        <p className="text-sm">No users found</p>
                     </div>
-                </button>
-                ))}
+                )}
             </>
          )}
        </div>

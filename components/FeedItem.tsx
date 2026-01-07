@@ -16,8 +16,8 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  const isMe = transaction.fromUser.id === currentUser.id;
-  const isToMe = transaction.toUser?.id === currentUser.id;
+  const isMe = currentUser ? transaction.fromUser.id === currentUser.id : false;
+  const isToMe = currentUser ? transaction.toUser?.id === currentUser.id : false;
 
   const handleCopy = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -33,6 +33,7 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   };
 
   const handlePayUSDTRequest = async () => {
+    if (!currentUser) return;
     setIsProcessing(true);
     // This call now triggers the AppContext logic which calls the Blockchain Service
     await updateTransaction(transaction.id, {
@@ -43,6 +44,7 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   };
 
   const handlePaidAndPost = async () => {
+      if (!currentUser) return;
       setIsProcessing(true);
       
       const proofUrl = file ? URL.createObjectURL(file) : undefined;

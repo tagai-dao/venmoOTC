@@ -20,7 +20,7 @@ const AppContent: React.FC = () => {
 
   const handleViewUser = (user: User) => {
       // If clicking own avatar, go to main profile tab
-      if (user.id === currentUser.id) {
+      if (currentUser && user.id === currentUser.id) {
           setActiveTab('profile');
           setViewingUser(null);
       } else {
