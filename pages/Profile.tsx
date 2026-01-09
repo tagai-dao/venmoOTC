@@ -5,11 +5,80 @@ import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, Arro
 import { Currency, formatCurrency, Privacy, TransactionType, OTCState } from '../utils';
 import QRCode from 'react-qr-code';
 import FeedItem from '../components/FeedItem';
-import Services from '../services';
+import { Services } from '../services';
 
-const Profile: React.FC = () => {
-  const { currentUser, walletBalance, isAuthenticated, login, logout, feed } = useApp();
+// 检查是否配置了 Privy
+const hasPrivy = !!import.meta.env.VITE_PRIVY_APP_ID;
+
+// 内部组件：只有在 PrivyProvider 存在时才调用 usePrivy
+const ProfileWithPrivy: React.FC<{
+  currentUser: any;
+  walletBalance: any;
+  isAuthenticated: boolean;
+  login: any;
+  logout: any;
+  feed: any;
+}> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed }) => {
+  // 只有在 PrivyProvider 存在时才调用 usePrivy
   const { ready, authenticated, user: privyUser, login: privyLogin, logout: privyLogout } = usePrivy();
+  
+  return (
+    <ProfileContent
+      currentUser={currentUser}
+      walletBalance={walletBalance}
+      isAuthenticated={isAuthenticated}
+      login={login}
+      logout={logout}
+      feed={feed}
+      ready={ready}
+      authenticated={authenticated}
+      privyUser={privyUser}
+      privyLogin={privyLogin}
+      privyLogout={privyLogout}
+    />
+  );
+};
+
+// 内部组件：没有 Privy 时的版本
+const ProfileWithoutPrivy: React.FC<{
+  currentUser: any;
+  walletBalance: any;
+  isAuthenticated: boolean;
+  login: any;
+  logout: any;
+  feed: any;
+}> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed }) => {
+  return (
+    <ProfileContent
+      currentUser={currentUser}
+      walletBalance={walletBalance}
+      isAuthenticated={isAuthenticated}
+      login={login}
+      logout={logout}
+      feed={feed}
+      ready={false}
+      authenticated={false}
+      privyUser={null}
+      privyLogin={async () => {}}
+      privyLogout={async () => {}}
+    />
+  );
+};
+
+// 主要的 Profile 内容组件
+const ProfileContent: React.FC<{
+  currentUser: any;
+  walletBalance: any;
+  isAuthenticated: boolean;
+  login: any;
+  logout: any;
+  feed: any;
+  ready: boolean;
+  authenticated: boolean;
+  privyUser: any;
+  privyLogin: () => Promise<void>;
+  privyLogout: () => Promise<void>;
+}> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed, ready, authenticated, privyUser, privyLogin, privyLogout }) => {
   const [showMyQR, setShowMyQR] = useState(false);
   const [activeTab, setActiveTab] = useState<'activity' | 'requests'>('activity');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -267,6 +336,26 @@ const Profile: React.FC = () => {
                     <span className="text-sm opacity-70">{formatCurrency(walletBalance[Currency.NGN], Currency.NGN)}</span>
                     <span className="text-sm opacity-70">{formatCurrency(walletBalance[Currency.VES], Currency.VES)}</span>
                  </div>
+                 {/* 显示钱包地址 */}
+                 <div className="mt-3 pt-3 border-t border-slate-700/50">
+                    <div className="flex items-center gap-2">
+                       <span className="text-slate-400 text-xs font-medium">Wallet Address:</span>
+                       <span className="text-xs font-mono text-slate-300 break-all">
+                          {privyUser?.wallet?.address || currentUser.walletAddress}
+                       </span>
+                       <button
+                          onClick={() => {
+                            const address = privyUser?.wallet?.address || currentUser.walletAddress;
+                            navigator.clipboard.writeText(address);
+                            alert('钱包地址已复制到剪贴板');
+                          }}
+                          className="ml-auto p-1 hover:bg-slate-700/50 rounded transition"
+                          title="复制钱包地址"
+                       >
+                          <Copy className="w-3 h-3 text-slate-400" />
+                       </button>
+                    </div>
+                 </div>
              </div>
           </div>
        </div>
@@ -455,6 +544,36 @@ const Profile: React.FC = () => {
        )}
     </div>
   );
+};
+
+// 主 Profile 组件：根据是否配置了 Privy 来选择使用哪个版本
+const Profile: React.FC = () => {
+  const { currentUser, walletBalance, isAuthenticated, login, logout, feed } = useApp();
+  
+  // 根据是否配置了 Privy 来选择使用哪个版本
+  if (hasPrivy) {
+    return (
+      <ProfileWithPrivy
+        currentUser={currentUser}
+        walletBalance={walletBalance}
+        isAuthenticated={isAuthenticated}
+        login={login}
+        logout={logout}
+        feed={feed}
+      />
+    );
+  } else {
+    return (
+      <ProfileWithoutPrivy
+        currentUser={currentUser}
+        walletBalance={walletBalance}
+        isAuthenticated={isAuthenticated}
+        login={login}
+        logout={logout}
+        feed={feed}
+      />
+    );
+  }
 };
 
 export default Profile;

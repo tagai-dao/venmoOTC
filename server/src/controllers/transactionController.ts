@@ -3,6 +3,7 @@ import { CreateTransactionRequest, UpdateTransactionRequest, TransactionType, Pr
 import { TransactionRepository } from '../db/repositories/transactionRepository.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { NotificationService } from '../services/notificationService.js';
+import { TwitterService } from '../services/twitterService.js';
 
 /**
  * 获取交易列表
@@ -39,6 +40,25 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
     
     const newTransaction = await TransactionRepository.create(transaction);
     
+    // 如果隐私设置为 PUBLIC_X，发布到 Twitter
+    if (newTransaction.privacy === Privacy.PUBLIC_X) {
+      try {
+        const tweetContent = TwitterService.generateTweetContent(newTransaction);
+        const tweetResult = await TwitterService.postTweet(tweetContent);
+        
+        // 更新交易，保存推文 ID
+        await TransactionRepository.update(newTransaction.id, {
+          xPostId: tweetResult.tweetId,
+        });
+        
+        console.log(`✅ Transaction posted to Twitter: ${tweetResult.tweetId}`);
+      } catch (error: any) {
+        // 如果 Twitter 发布失败，记录错误但不阻止交易创建
+        console.error('❌ Failed to post transaction to Twitter:', error.message);
+        // 可以选择继续或返回错误，这里选择继续
+      }
+    }
+    
     // 创建通知
     // 1. 如果是 REQUEST，通知目标用户
     if (newTransaction.type === TransactionType.REQUEST) {
@@ -49,7 +69,10 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       await NotificationService.notifyPaymentReceived(newTransaction);
     }
     
-    res.status(201).json({ transaction: newTransaction });
+    // 重新获取交易（包含更新的 xPostId）
+    const updatedTransaction = await TransactionRepository.findById(newTransaction.id);
+    
+    res.status(201).json({ transaction: updatedTransaction || newTransaction });
   } catch (error: any) {
     console.error('Create transaction error:', error);
     res.status(500).json({ error: error.message || 'Failed to create transaction' });

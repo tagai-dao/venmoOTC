@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { PostTweetRequest, ReplyTweetRequest } from '../types.js';
-import { generateTweetId } from '../mockData.js';
+import { TwitterService } from '../services/twitterService.js';
 
 /**
  * 发布推文到 X (Twitter)
- * 使用 Mock 数据返回推文 ID
+ * 使用真实的 Twitter API v2
  */
 export const postTweet = async (req: Request, res: Response) => {
   try {
@@ -16,19 +16,16 @@ export const postTweet = async (req: Request, res: Response) => {
     
     console.log(`🐦 Posting to X API v2: "${content}"`);
     
-    // 模拟 API 调用延迟
-    await new Promise(resolve => setTimeout(resolve, 800));
+    // 调用真实的 Twitter API
+    const result = await TwitterService.postTweet(content, accessToken);
     
-    // 生成模拟推文 ID
-    const tweetId = generateTweetId();
-    
-    console.log(`✅ Posted to X! Tweet ID: ${tweetId}`);
+    console.log(`✅ Posted to X! Tweet ID: ${result.tweetId}`);
     
     res.json({ 
-      tweetId, 
+      tweetId: result.tweetId, 
       content,
       createdAt: new Date().toISOString(),
-      url: `https://twitter.com/user/status/${tweetId}`,
+      url: result.url,
     });
   } catch (error: any) {
     console.error('Post tweet error:', error);
@@ -38,7 +35,7 @@ export const postTweet = async (req: Request, res: Response) => {
 
 /**
  * 回复推文
- * 使用 Mock 数据返回回复 ID
+ * 使用真实的 Twitter API v2
  */
 export const replyToTweet = async (req: Request, res: Response) => {
   try {
@@ -50,20 +47,17 @@ export const replyToTweet = async (req: Request, res: Response) => {
     
     console.log(`🐦 Replying to Tweet ${originalTweetId} on X: "${content}"`);
     
-    // 模拟 API 调用延迟
-    await new Promise(resolve => setTimeout(resolve, 800));
+    // 调用真实的 Twitter API
+    const result = await TwitterService.replyToTweet(originalTweetId, content, accessToken);
     
-    // 生成模拟回复 ID
-    const replyId = generateTweetId();
-    
-    console.log(`✅ Reply posted to X! ID: ${replyId}`);
+    console.log(`✅ Reply posted to X! ID: ${result.replyId}`);
     
     res.json({ 
-      replyId, 
+      replyId: result.replyId, 
       originalTweetId, 
       content,
       createdAt: new Date().toISOString(),
-      url: `https://twitter.com/user/status/${replyId}`,
+      url: result.url,
     });
   } catch (error: any) {
     console.error('Reply tweet error:', error);

@@ -7,7 +7,7 @@ import UserProfile from './pages/UserProfile';
 import { Home as HomeIcon, User as UserIcon } from 'lucide-react';
 import OTCActionModal from './components/OTCActionModal';
 import { User, TransactionType } from './utils';
-import Services from './services';
+import { Services } from './services';
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'home' | 'profile'>('home');
@@ -202,14 +202,17 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
-  // 从环境变量获取 Privy App ID
+// 包装组件：只有在配置了有效的 Privy App ID 时才渲染 PrivyProvider
+const PrivyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || '';
   
+  // 如果没有配置 Privy App ID，直接渲染子组件，不渲染 PrivyProvider
   if (!privyAppId) {
     console.warn('⚠️ VITE_PRIVY_APP_ID is not set. Privy login will not work.');
+    return <>{children}</>;
   }
-
+  
+  // 只有在有有效 appId 时才渲染 PrivyProvider
   return (
     <PrivyProvider
       appId={privyAppId}
@@ -253,10 +256,23 @@ const App: React.FC = () => {
         ],
       }}
     >
+      {children}
+    </PrivyProvider>
+  );
+};
+
+const App: React.FC = () => {
+  // 从环境变量获取 Privy App ID
+  const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || '';
+  
+  console.log('🔍 Privy App ID:', privyAppId ? '已配置' : '未配置');
+  
+  return (
+    <PrivyWrapper>
       <AppProvider>
         <AppContent />
       </AppProvider>
-    </PrivyProvider>
+    </PrivyWrapper>
   );
 };
 
