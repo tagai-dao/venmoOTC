@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PrivyProvider } from '@privy-io/react-auth';
 import { AppProvider, useApp } from './context/AppContext';
 import Home from './pages/Home';
 import Profile from './pages/Profile';
@@ -24,9 +25,12 @@ const AppContent: React.FC = () => {
     const userStr = urlParams.get('user');
     const error = urlParams.get('error');
 
+    console.log('🔍 Checking OAuth callback:', { hasToken: !!token, hasUser: !!userStr, hasError: !!error });
+
     if (error) {
       console.error('OAuth error:', error);
-      alert(`Twitter 登录失败: ${decodeURIComponent(error)}`);
+      const errorMessage = decodeURIComponent(error);
+      alert(`Twitter 登录失败: ${errorMessage}`);
       // 清理 URL 参数
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
@@ -34,22 +38,36 @@ const AppContent: React.FC = () => {
 
     if (token && userStr) {
       try {
-        const user = JSON.parse(userStr);
+        console.log('📥 Received OAuth callback with token and user');
+        // userStr 可能已经被 URL 编码，需要解码
+        let decodedUserStr = userStr;
+        try {
+          decodedUserStr = decodeURIComponent(userStr);
+        } catch (e) {
+          // 如果解码失败，说明可能没有被编码，直接使用
+          console.log('User string not encoded, using as is');
+        }
+        const user = JSON.parse(decodedUserStr);
+        console.log('👤 User from OAuth:', user.handle);
         
         // 存储 token 和用户信息
         localStorage.setItem('auth_token', token);
         localStorage.setItem('current_user', JSON.stringify(user));
         
-        // 调用 login 函数更新状态
+        console.log('💾 Saved user to localStorage');
+        
+        // 调用 login 函数更新状态（不传参数，从 localStorage 读取）
         login().then(() => {
+          console.log('✅ Login successful after OAuth');
           // 清理 URL 参数
           window.history.replaceState({}, document.title, window.location.pathname);
         }).catch((err) => {
-          console.error('Login after OAuth failed:', err);
+          console.error('❌ Login after OAuth failed:', err);
           alert('登录后初始化失败，请刷新页面');
         });
       } catch (e) {
-        console.error('Failed to parse user data from OAuth callback:', e);
+        console.error('❌ Failed to parse user data from OAuth callback:', e);
+        console.error('User string:', userStr);
         alert('解析用户数据失败');
         window.history.replaceState({}, document.title, window.location.pathname);
       }
@@ -185,10 +203,60 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // 从环境变量获取 Privy App ID
+  const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || '';
+  
+  if (!privyAppId) {
+    console.warn('⚠️ VITE_PRIVY_APP_ID is not set. Privy login will not work.');
+  }
+
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <PrivyProvider
+      appId={privyAppId}
+      config={{
+        // 登录方式配置
+        loginMethods: ['twitter', 'wallet', 'email', 'sms'],
+        // 外观配置
+        appearance: {
+          theme: 'light',
+          accentColor: '#3b82f6', // blue-500
+          logo: undefined,
+        },
+        // 嵌入钱包配置
+        embeddedWallets: {
+          createOnLogin: 'users-without-wallets', // 为没有钱包的用户自动创建
+          requireUserPasswordOnCreate: false, // 不需要密码
+        },
+        // 支持的链配置（BSC）
+        supportedChains: [
+          {
+            id: 56, // BSC Mainnet
+            name: 'BNB Smart Chain',
+            network: 'bsc',
+            nativeCurrency: {
+              decimals: 18,
+              name: 'BNB',
+              symbol: 'BNB',
+            },
+            rpcUrls: {
+              default: {
+                http: ['https://bsc-dataseed.binance.org/'],
+              },
+            },
+            blockExplorers: {
+              default: {
+                name: 'BscScan',
+                url: 'https://bscscan.com',
+              },
+            },
+          },
+        ],
+      }}
+    >
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </PrivyProvider>
   );
 };
 

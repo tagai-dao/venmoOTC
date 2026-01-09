@@ -1,7 +1,13 @@
 import express from 'express';
-import { loginWithX, logout, twitterAuthorize, twitterCallback } from '../controllers/authController.js';
+import { loginWithX, logout, twitterAuthorize, twitterCallback, loginWithPrivy } from '../controllers/authController.js';
 
 const router = express.Router();
+
+/**
+ * POST /api/auth/privy
+ * Privy 登录（同步用户到后端）
+ */
+router.post('/privy', loginWithPrivy);
 
 /**
  * GET /api/auth/twitter/authorize

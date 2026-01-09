@@ -1,16 +1,88 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
 import { useApp } from '../context/AppContext';
 import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, ArrowUpRight, ArrowDownLeft, Globe, Loader } from 'lucide-react';
 import { Currency, formatCurrency, Privacy, TransactionType, OTCState } from '../utils';
 import QRCode from 'react-qr-code';
 import FeedItem from '../components/FeedItem';
+import Services from '../services';
 
 const Profile: React.FC = () => {
   const { currentUser, walletBalance, isAuthenticated, login, logout, feed } = useApp();
+  const { ready, authenticated, user: privyUser, login: privyLogin, logout: privyLogout } = usePrivy();
   const [showMyQR, setShowMyQR] = useState(false);
   const [activeTab, setActiveTab] = useState<'activity' | 'requests'>('activity');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [xHandle, setXHandle] = useState('');
+  const [isPrivySyncing, setIsPrivySyncing] = useState(false);
+
+  // 当 Privy 用户登录后，同步到后端
+  useEffect(() => {
+    const syncPrivyUser = async () => {
+      if (!ready || !authenticated || !privyUser) return;
+      if (isAuthenticated && currentUser) return; // 已经同步过了
+      
+      setIsPrivySyncing(true);
+      try {
+        console.log('🔄 Syncing Privy user to backend...');
+        
+        // 获取钱包地址
+        const wallet = privyUser.wallet;
+        if (!wallet) {
+          console.error('No wallet found in Privy user');
+          return;
+        }
+        
+        const walletAddress = wallet.address;
+        console.log('💼 Privy wallet address:', walletAddress);
+        
+        // 获取 Twitter 账号（如果有）
+        const twitterAccount = privyUser.twitter;
+        const handle = twitterAccount ? `@${twitterAccount.username}` : undefined;
+        const name = twitterAccount?.name || privyUser.email?.address || 'User';
+        const avatar = twitterAccount?.profileImageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${walletAddress}`;
+        
+        // 调用后端 API 同步用户
+        const response = await Services.auth.loginWithPrivy({
+          walletAddress,
+          handle,
+          name,
+          avatar,
+          privyUserId: privyUser.id,
+        });
+        
+        console.log('✅ Privy user synced:', response.user.handle);
+        
+        // 更新应用状态
+        await login();
+      } catch (error: any) {
+        console.error('❌ Failed to sync Privy user:', error);
+        alert(`同步 Privy 用户失败: ${error?.message || '未知错误'}`);
+      } finally {
+        setIsPrivySyncing(false);
+      }
+    };
+    
+    syncPrivyUser();
+  }, [ready, authenticated, privyUser, isAuthenticated, currentUser, login]);
+
+  const handlePrivyLogin = async () => {
+    try {
+      await privyLogin();
+    } catch (error: any) {
+      console.error('Privy login error:', error);
+      alert(`Privy 登录失败: ${error?.message || '未知错误'}`);
+    }
+  };
+
+  const handlePrivyLogout = async () => {
+    try {
+      await privyLogout();
+      await logout();
+    } catch (error: any) {
+      console.error('Privy logout error:', error);
+    }
+  };
 
   const handleLogin = async () => {
       if (!xHandle.trim()) {
@@ -50,6 +122,33 @@ const Profile: React.FC = () => {
          <p className="text-gray-500 text-center mb-8">The social way to pay and trade stablecoins.</p>
          
          <div className="w-full max-w-xs space-y-3">
+            {/* Privy 登录按钮 */}
+            {ready && (
+              <button 
+                onClick={handlePrivyLogin}
+                disabled={isPrivySyncing || !ready}
+                className="bg-blue-600 text-white w-full py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isPrivySyncing ? (
+                  <>
+                    <Loader className="w-5 h-5 animate-spin" />
+                    同步中...
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="w-5 h-5" />
+                    使用 Privy 登录（生成钱包）
+                  </>
+                )}
+              </button>
+            )}
+            
+            <div className="flex items-center gap-3 my-4">
+               <div className="flex-1 h-px bg-gray-200"></div>
+               <span className="text-xs text-gray-400">或</span>
+               <div className="flex-1 h-px bg-gray-200"></div>
+            </div>
+            
             {/* Twitter OAuth 登录按钮 */}
             <button 
                onClick={handleTwitterOAuth}
@@ -150,7 +249,7 @@ const Profile: React.FC = () => {
                  <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
                      <QrCode className="w-6 h-6" />
                  </button>
-                 <button onClick={logout} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                 <button onClick={handlePrivyLogout} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
                      <Settings className="w-6 h-6" />
                  </button>
               </div>

@@ -168,6 +168,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const login = async (xHandle?: string) => {
       try {
+          // 如果是从 OAuth 回调，从 localStorage 读取用户信息
+          if (!xHandle) {
+              const userStr = localStorage.getItem('current_user');
+              const token = localStorage.getItem('auth_token');
+              
+              if (userStr && token) {
+                  const user = JSON.parse(userStr);
+                  setCurrentUser(user);
+                  setIsAuthenticated(true);
+                  // 登录后刷新 feed 和通知
+                  await Promise.all([refreshFeed(), refreshNotifications()]);
+                  return;
+              } else {
+                  throw new Error('No user data found in localStorage');
+              }
+          }
+          
+          // 通过 handle 登录（测试模式）
           const user = await Services.auth.loginWithX(xHandle);
           setCurrentUser(user);
           setIsAuthenticated(true);

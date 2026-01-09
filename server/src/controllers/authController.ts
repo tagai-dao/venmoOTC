@@ -227,16 +227,96 @@ export const twitterCallback = async (req: Request, res: Response) => {
     });
     
     // 5. 重定向到前端，带上 token 和用户信息
+    // 注意：URL 参数有长度限制，如果用户信息太大，可能需要使用其他方式传递
     const frontendUrl = new URL(config.frontendUrl);
     frontendUrl.searchParams.set('token', token);
     frontendUrl.searchParams.set('user', JSON.stringify(user));
     
-    console.log('✅ Twitter OAuth successful, redirecting to frontend');
+    console.log('✅ Twitter OAuth successful');
+    console.log('📤 Redirecting to frontend:', frontendUrl.toString());
+    console.log('👤 User:', user.handle);
+    
     res.redirect(frontendUrl.toString());
   } catch (error: any) {
     console.error('Twitter callback error:', error);
     const errorMessage = error.response?.data?.error_description || error.message || 'OAuth callback failed';
     res.redirect(`${config.frontendUrl}?error=${encodeURIComponent(errorMessage)}`);
+  }
+};
+
+/**
+ * Privy 登录（同步用户到后端）
+ */
+export const loginWithPrivy = async (req: Request, res: Response) => {
+  try {
+    console.log('📥 Privy login request received');
+    
+    const { walletAddress, handle, name, avatar, privyUserId } = req.body;
+    
+    if (!walletAddress) {
+      return res.status(400).json({ error: { message: 'Wallet address is required' } });
+    }
+    
+    // 查找或创建用户
+    let user = await UserRepository.findByWalletAddress(walletAddress);
+    
+    if (!user) {
+      // 创建新用户
+      const userId = crypto.randomUUID();
+      const userHandle = handle || `@user_${walletAddress.slice(2, 10)}`;
+      const userAvatar = avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${walletAddress}`;
+      
+      user = await UserRepository.create({
+        id: userId,
+        handle: userHandle,
+        name: name || 'User',
+        avatar: userAvatar,
+        walletAddress,
+        isVerified: false,
+      });
+      
+      console.log(`✅ Created new user from Privy: ${user.handle}`);
+    } else {
+      // 更新用户信息（如果有新的信息）
+      const updates: any = {};
+      if (name && name !== user.name) updates.name = name;
+      if (avatar && avatar !== user.avatar) updates.avatar = avatar;
+      if (handle && handle !== user.handle) {
+        // 检查 handle 是否已被使用
+        const existingUser = await UserRepository.findByHandle(handle);
+        if (!existingUser) {
+          updates.handle = handle;
+        }
+      }
+      
+      if (Object.keys(updates).length > 0) {
+        await UserRepository.update(user.id, updates);
+        user = await UserRepository.findById(user.id);
+        console.log(`✅ Updated user from Privy: ${user?.handle}`);
+      }
+    }
+    
+    if (!user) {
+      return res.status(500).json({ error: { message: 'Failed to create or find user' } });
+    }
+    
+    // 生成 JWT token
+    const token = generateToken({
+      userId: user.id,
+      handle: user.handle,
+      walletAddress: user.walletAddress,
+    });
+    
+    const response: LoginResponse = {
+      user: user,
+      token: token,
+    };
+    
+    console.log('📤 Sending Privy login response:', JSON.stringify({ user: { id: user.id, handle: user.handle }, token: 'JWT_TOKEN_GENERATED' }));
+    res.json(response);
+  } catch (error: any) {
+    console.error('❌ Privy login error:', error);
+    res.status(500).json({ error: { message: error.message || 'Privy login failed' } });
   }
 };
 

@@ -59,6 +59,31 @@ export const Services = {
     // --- 1. Authentication Service ---
     auth: {
         /**
+         * Privy 登录（同步用户到后端）
+         */
+        loginWithPrivy: async (privyData: {
+            walletAddress: string;
+            handle?: string;
+            name: string;
+            avatar?: string;
+            privyUserId: string;
+        }): Promise<{ user: User; token: string }> => {
+            const response = await apiRequest<{ user: User; token: string }>('/api/auth/privy', {
+                method: 'POST',
+                body: JSON.stringify(privyData),
+            });
+            
+            // 存储 token 和用户信息
+            if (response.token) {
+                localStorage.setItem('auth_token', response.token);
+                localStorage.setItem('current_user', JSON.stringify(response.user));
+                console.log('✅ Privy login successful, token stored');
+            }
+            
+            return response;
+        },
+        
+        /**
          * Twitter OAuth 2.0 授权登录
          * 重定向到后端授权端点
          */
