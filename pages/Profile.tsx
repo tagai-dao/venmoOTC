@@ -29,6 +29,11 @@ const Profile: React.FC = () => {
       }
   }
 
+  const handleTwitterOAuth = () => {
+      // 重定向到后端 Twitter OAuth 授权端点
+      window.location.href = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/twitter/authorize`;
+  }
+
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
           handleLogin();
@@ -45,6 +50,22 @@ const Profile: React.FC = () => {
          <p className="text-gray-500 text-center mb-8">The social way to pay and trade stablecoins.</p>
          
          <div className="w-full max-w-xs space-y-3">
+            {/* Twitter OAuth 登录按钮 */}
+            <button 
+               onClick={handleTwitterOAuth}
+               className="bg-black text-white w-full py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition"
+            >
+               <Twitter className="w-5 h-5" />
+               使用 Twitter 登录
+            </button>
+            
+            <div className="flex items-center gap-3 my-4">
+               <div className="flex-1 h-px bg-gray-200"></div>
+               <span className="text-xs text-gray-400">或</span>
+               <div className="flex-1 h-px bg-gray-200"></div>
+            </div>
+            
+            {/* 通过 handle 登录（测试用） */}
             <div className="relative">
                <Twitter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                <input
@@ -55,16 +76,15 @@ const Profile: React.FC = () => {
                   placeholder="输入 X 账号 (例如: @crypto_native)"
                   disabled={isLoggingIn}
                   className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-full outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition disabled:opacity-70 text-center"
-                  autoFocus
                />
             </div>
             <button 
                onClick={handleLogin}
                disabled={isLoggingIn || !xHandle.trim()}
-               className="bg-black text-white w-full py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+               className="bg-gray-200 text-gray-700 w-full py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
                {isLoggingIn ? <Loader className="w-5 h-5 animate-spin" /> : <Twitter className="w-5 h-5" />}
-               {isLoggingIn ? '登录中...' : '登录'}
+               {isLoggingIn ? '登录中...' : '通过账号登录（测试）'}
             </button>
          </div>
          <p className="mt-4 text-xs text-gray-400 text-center max-w-[280px]">

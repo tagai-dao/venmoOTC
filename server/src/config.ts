@@ -17,6 +17,14 @@ export const config = {
     apiBase: 'https://api.twitter.com/2',
   },
   
+  // Twitter OAuth 2.0
+  twitterOAuth: {
+    clientId: process.env.TWITTER_CLIENT_ID || '',
+    clientSecret: process.env.TWITTER_CLIENT_SECRET || '',
+    redirectUri: process.env.TWITTER_REDIRECT_URI || 'http://localhost:3001/api/auth/twitter/callback',
+    scope: 'tweet.read users.read offline.access',
+  },
+  
   // Blockchain
   blockchain: {
     bnbChainRpcUrl: process.env.BNB_CHAIN_RPC_URL || 'https://bsc-dataseed.binance.org/',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import Home from './pages/Home';
 import Profile from './pages/Profile';
@@ -6,6 +6,7 @@ import UserProfile from './pages/UserProfile';
 import { Home as HomeIcon, User as UserIcon } from 'lucide-react';
 import OTCActionModal from './components/OTCActionModal';
 import { User, TransactionType } from './utils';
+import Services from './services';
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'home' | 'profile'>('home');
@@ -14,7 +15,46 @@ const AppContent: React.FC = () => {
   const [payInitialUser, setPayInitialUser] = useState<User | null>(null);
   const [payInitialAddress, setPayInitialAddress] = useState<string | null>(null);
   const [payInitialType, setPayInitialType] = useState<TransactionType>(TransactionType.REQUEST);
-  const { isAuthenticated, currentUser, friends } = useApp();
+  const { isAuthenticated, currentUser, friends, login } = useApp();
+
+  // 处理 Twitter OAuth 回调
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const userStr = urlParams.get('user');
+    const error = urlParams.get('error');
+
+    if (error) {
+      console.error('OAuth error:', error);
+      alert(`Twitter 登录失败: ${decodeURIComponent(error)}`);
+      // 清理 URL 参数
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (token && userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        
+        // 存储 token 和用户信息
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('current_user', JSON.stringify(user));
+        
+        // 调用 login 函数更新状态
+        login().then(() => {
+          // 清理 URL 参数
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }).catch((err) => {
+          console.error('Login after OAuth failed:', err);
+          alert('登录后初始化失败，请刷新页面');
+        });
+      } catch (e) {
+        console.error('Failed to parse user data from OAuth callback:', e);
+        alert('解析用户数据失败');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [login]);
 
   // If not authenticated, force Profile view (which has the login screen)
   if (!isAuthenticated) {

@@ -58,6 +58,14 @@ async function apiRequest<T>(
 export const Services = {
     // --- 1. Authentication Service ---
     auth: {
+        /**
+         * Twitter OAuth 2.0 授权登录
+         * 重定向到后端授权端点
+         */
+        loginWithTwitter: () => {
+            window.location.href = `${API_BASE_URL}/api/auth/twitter/authorize`;
+        },
+        
         loginWithX: async (xHandle?: string, xToken?: string, xTokenSecret?: string): Promise<User> => {
             console.log('🔐 Attempting login with xHandle:', xHandle);
             try {
