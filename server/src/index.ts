@@ -8,6 +8,10 @@ import blockchainRoutes from './routes/blockchain.js';
 import socialRoutes from './routes/social.js';
 import transactionRoutes from './routes/transactions.js';
 import userRoutes from './routes/users.js';
+import notificationRoutes from './routes/notifications.js';
+import socialInteractionRoutes from './routes/socialInteractions.js';
+import bidRoutes from './routes/bids.js';
+import multisigRoutes from './routes/multisig.js';
 
 const app = express();
 
@@ -46,6 +50,10 @@ app.use('/api/blockchain', blockchainRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/social-interactions', socialInteractionRoutes);
+app.use('/api/bids', bidRoutes);
+app.use('/api/multisig', multisigRoutes);
 
 // 错误处理中间件
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

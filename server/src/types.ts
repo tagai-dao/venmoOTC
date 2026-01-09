@@ -21,9 +21,13 @@ export enum TransactionType {
 export enum OTCState {
   NONE = 'NONE',
   OPEN_REQUEST = 'OPEN_REQUEST',
-  AWAITING_FIAT_PAYMENT = 'AWAITING_FIAT_PAYMENT',
+  BIDDING = 'BIDDING', // People can bid on the request (for fiat requests)
+  SELECTED_TRADER = 'SELECTED_TRADER', // Requester selected a trader
+  USDT_IN_ESCROW = 'USDT_IN_ESCROW', // USDT sent to multisig contract, waiting for fiat payment
+  AWAITING_FIAT_PAYMENT = 'AWAITING_FIAT_PAYMENT', // Kept for backward compatibility
   AWAITING_FIAT_CONFIRMATION = 'AWAITING_FIAT_CONFIRMATION',
-  COMPLETED = 'COMPLETED'
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED'
 }
 
 export interface User {
@@ -46,6 +50,17 @@ export interface TransactionReply {
   text: string;
   proof?: string;
   timestamp: number;
+  privacy?: Privacy;
+  xCommentId?: string;
+}
+
+export interface Bid {
+  id: string;
+  userId: string;
+  user: User;
+  transactionId: string;
+  timestamp: number;
+  message?: string; // Optional message from bidder
 }
 
 export interface Transaction {
@@ -66,6 +81,14 @@ export interface Transaction {
   otcOfferAmount?: number;
   otcProofImage?: string;
   relatedTransactionId?: string;
+  fiatRejectionCount?: number;
+  
+  // New fields for fiat request flow
+  bids?: Bid[]; // List of bids from traders
+  selectedTraderId?: string; // ID of the selected trader
+  multisigContractAddress?: string; // Address of the 2/2 multisig contract
+  usdtInEscrow?: boolean; // Whether USDT has been sent to multisig
+  
   likes: number;
   comments: number;
   replies?: TransactionReply[];

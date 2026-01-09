@@ -1,5 +1,5 @@
 import { pool } from '../config.js';
-import { Transaction, TransactionReply, TransactionType, Privacy, OTCState, Currency } from '../../types.js';
+import { Transaction, TransactionReply, TransactionType, Privacy, OTCState, Currency, Bid } from '../../types.js';
 import { UserRepository } from './userRepository.js';
 
 /**
@@ -21,13 +21,14 @@ export class TransactionRepository {
     }
 
     // 获取回复
-    const repliesResult = await pool.query(
-      'SELECT * FROM transaction_replies WHERE transaction_id = $1 ORDER BY timestamp ASC',
+    const [repliesRows] = await pool.execute(
+      'SELECT * FROM transaction_replies WHERE transaction_id = ? ORDER BY timestamp ASC',
       [row.id]
     );
 
+    const repliesResult = repliesRows as any[];
     const replies: TransactionReply[] = await Promise.all(
-      repliesResult.rows.map(async (replyRow) => {
+      repliesResult.map(async (replyRow) => {
         const replyUser = await UserRepository.findById(replyRow.user_id);
         if (!replyUser) {
           throw new Error(`User not found: ${replyRow.user_id}`);
@@ -38,14 +39,46 @@ export class TransactionRepository {
           text: replyRow.text,
           proof: replyRow.proof || undefined,
           timestamp: parseInt(replyRow.timestamp),
+          privacy: replyRow.privacy || 'PUBLIC',
+          xCommentId: replyRow.x_comment_id || undefined,
         };
       })
     );
 
+    // 获取抢单（bids）
+    const [bidsRows] = await pool.execute(
+      'SELECT * FROM transaction_bids WHERE transaction_id = ? ORDER BY timestamp ASC',
+      [row.id]
+    );
+
+    const bidsResult = bidsRows as any[];
+    const bids: Bid[] = await Promise.all(
+      bidsResult.map(async (bidRow) => {
+        const bidUser = await UserRepository.findById(bidRow.user_id);
+        if (!bidUser) {
+          throw new Error(`User not found: ${bidRow.user_id}`);
+        }
+        return {
+          id: bidRow.id,
+          userId: bidRow.user_id,
+          user: bidUser,
+          transactionId: bidRow.transaction_id,
+          timestamp: parseInt(bidRow.timestamp),
+          message: bidRow.message || undefined,
+        };
+      })
+    );
+
+    // 获取选中的交易者
+    let selectedTrader = null;
+    if (row.selected_trader_id) {
+      selectedTrader = await UserRepository.findById(row.selected_trader_id);
+    }
+
     return {
       id: row.id,
       fromUser,
-      toUser,
+      toUser: selectedTrader || toUser, // Use selected trader if available
       amount: parseFloat(row.amount),
       currency: row.currency as Currency,
       note: row.note,
@@ -54,12 +87,17 @@ export class TransactionRepository {
       privacy: row.privacy as Privacy,
       type: row.type as TransactionType,
       xPostId: row.x_post_id || undefined,
-      isOTC: row.is_otc,
+      isOTC: Boolean(row.is_otc),
       otcState: row.otc_state as OTCState,
       otcFiatCurrency: row.otc_fiat_currency as Currency | undefined,
       otcOfferAmount: row.otc_offer_amount ? parseFloat(row.otc_offer_amount) : undefined,
       otcProofImage: row.otc_proof_image || undefined,
       relatedTransactionId: row.related_transaction_id || undefined,
+      fiatRejectionCount: row.fiat_rejection_count || 0,
+      bids: bids.length > 0 ? bids : undefined,
+      selectedTraderId: row.selected_trader_id || undefined,
+      multisigContractAddress: row.multisig_contract_address || undefined,
+      usdtInEscrow: Boolean(row.usdt_in_escrow),
       likes: row.likes || 0,
       comments: row.comments || 0,
       replies: replies.length > 0 ? replies : undefined,
@@ -82,38 +120,37 @@ export class TransactionRepository {
     let paramIndex = 1;
 
     if (filters?.userId) {
-      query += ` AND (t.from_user_id = $${paramIndex} OR t.to_user_id = $${paramIndex})`;
-      params.push(filters.userId);
-      paramIndex++;
+      query += ` AND (t.from_user_id = ? OR t.to_user_id = ?)`;
+      params.push(filters.userId, filters.userId);
     }
 
     if (filters?.type) {
-      query += ` AND t.type = $${paramIndex}`;
+      query += ` AND t.type = ?`;
       params.push(filters.type);
-      paramIndex++;
     }
 
     if (filters?.privacy) {
-      query += ` AND t.privacy = $${paramIndex}`;
+      query += ` AND t.privacy = ?`;
       params.push(filters.privacy);
-      paramIndex++;
     }
 
     query += ' ORDER BY t.timestamp DESC';
 
-    const result = await pool.query(query, params);
-    return Promise.all(result.rows.map(row => this.rowToTransaction(row)));
+    const [rows] = await pool.execute(query, params);
+    const result = rows as any[];
+    return Promise.all(result.map(row => this.rowToTransaction(row)));
   }
 
   /**
    * 根据 ID 获取交易
    */
   static async findById(id: string): Promise<Transaction | null> {
-    const result = await pool.query('SELECT * FROM transactions WHERE id = $1', [id]);
-    if (result.rows.length === 0) {
+    const [rows] = await pool.execute('SELECT * FROM transactions WHERE id = ?', [id]);
+    const result = rows as any[];
+    if (result.length === 0) {
       return null;
     }
-    return this.rowToTransaction(result.rows[0]);
+    return this.rowToTransaction(result[0]);
   }
 
   /**
@@ -123,13 +160,14 @@ export class TransactionRepository {
     const id = transaction.id || `t${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const timestamp = transaction.timestamp || Date.now();
 
-    await pool.query(
+    await pool.execute(
       `INSERT INTO transactions (
         id, from_user_id, to_user_id, amount, currency, note, sticker,
         timestamp, privacy, type, x_post_id, is_otc, otc_state,
         otc_fiat_currency, otc_offer_amount, otc_proof_image,
-        related_transaction_id, likes, comments
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        related_transaction_id, fiat_rejection_count, likes, comments,
+        selected_trader_id, multisig_contract_address, usdt_in_escrow
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         transaction.fromUser.id,
@@ -142,14 +180,18 @@ export class TransactionRepository {
         transaction.privacy,
         transaction.type,
         transaction.xPostId || null,
-        transaction.isOTC,
+        transaction.isOTC ? 1 : 0,
         transaction.otcState,
         transaction.otcFiatCurrency || null,
         transaction.otcOfferAmount || null,
         transaction.otcProofImage || null,
         transaction.relatedTransactionId || null,
+        transaction.fiatRejectionCount || 0,
         transaction.likes || 0,
         transaction.comments || 0,
+        transaction.selectedTraderId || null,
+        transaction.multisigContractAddress || null,
+        transaction.usdtInEscrow ? 1 : 0,
       ]
     );
 
@@ -160,17 +202,17 @@ export class TransactionRepository {
    * 更新交易
    */
   static async update(id: string, updates: Partial<Transaction> & { newReply?: TransactionReply }): Promise<Transaction | null> {
-    const client = await pool.connect();
+    const connection = await pool.getConnection();
     
     try {
-      await client.query('BEGIN');
+      await connection.beginTransaction();
 
       // 处理新回复
       if (updates.newReply) {
         const replyId = updates.newReply.id || `r${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-        await client.query(
+        await connection.execute(
           `INSERT INTO transaction_replies (id, transaction_id, user_id, text, proof, timestamp)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+           VALUES (?, ?, ?, ?, ?, ?)`,
           [
             replyId,
             id,
@@ -182,8 +224,8 @@ export class TransactionRepository {
         );
 
         // 更新评论数
-        await client.query(
-          'UPDATE transactions SET comments = comments + 1 WHERE id = $1',
+        await connection.execute(
+          'UPDATE transactions SET comments = comments + 1 WHERE id = ?',
           [id]
         );
       }
@@ -191,70 +233,85 @@ export class TransactionRepository {
       // 更新其他字段
       const fields: string[] = [];
       const values: any[] = [];
-      let paramIndex = 1;
 
       if (updates.toUser !== undefined) {
-        fields.push(`to_user_id = $${paramIndex++}`);
+        fields.push(`to_user_id = ?`);
         values.push(updates.toUser?.id || null);
       }
       if (updates.amount !== undefined) {
-        fields.push(`amount = $${paramIndex++}`);
+        fields.push(`amount = ?`);
         values.push(updates.amount);
       }
       if (updates.currency !== undefined) {
-        fields.push(`currency = $${paramIndex++}`);
+        fields.push(`currency = ?`);
         values.push(updates.currency);
       }
       if (updates.note !== undefined) {
-        fields.push(`note = $${paramIndex++}`);
+        fields.push(`note = ?`);
         values.push(updates.note);
       }
       if (updates.sticker !== undefined) {
-        fields.push(`sticker = $${paramIndex++}`);
+        fields.push(`sticker = ?`);
         values.push(updates.sticker || null);
       }
       if (updates.privacy !== undefined) {
-        fields.push(`privacy = $${paramIndex++}`);
+        fields.push(`privacy = ?`);
         values.push(updates.privacy);
       }
       if (updates.type !== undefined) {
-        fields.push(`type = $${paramIndex++}`);
+        fields.push(`type = ?`);
         values.push(updates.type);
       }
       if (updates.xPostId !== undefined) {
-        fields.push(`x_post_id = $${paramIndex++}`);
+        fields.push(`x_post_id = ?`);
         values.push(updates.xPostId || null);
       }
       if (updates.isOTC !== undefined) {
-        fields.push(`is_otc = $${paramIndex++}`);
-        values.push(updates.isOTC);
+        fields.push(`is_otc = ?`);
+        values.push(updates.isOTC ? 1 : 0);
       }
       if (updates.otcState !== undefined) {
-        fields.push(`otc_state = $${paramIndex++}`);
+        fields.push(`otc_state = ?`);
         values.push(updates.otcState);
       }
       if (updates.otcFiatCurrency !== undefined) {
-        fields.push(`otc_fiat_currency = $${paramIndex++}`);
+        fields.push(`otc_fiat_currency = ?`);
         values.push(updates.otcFiatCurrency || null);
       }
       if (updates.otcOfferAmount !== undefined) {
-        fields.push(`otc_offer_amount = $${paramIndex++}`);
+        fields.push(`otc_offer_amount = ?`);
         values.push(updates.otcOfferAmount || null);
       }
       if (updates.otcProofImage !== undefined) {
-        fields.push(`otc_proof_image = $${paramIndex++}`);
+        fields.push(`otc_proof_image = ?`);
         values.push(updates.otcProofImage || null);
       }
       if (updates.relatedTransactionId !== undefined) {
-        fields.push(`related_transaction_id = $${paramIndex++}`);
+        fields.push(`related_transaction_id = ?`);
         values.push(updates.relatedTransactionId || null);
       }
+      if (updates.fiatRejectionCount !== undefined) {
+        fields.push(`fiat_rejection_count = ?`);
+        values.push(updates.fiatRejectionCount);
+      }
+      if (updates.selectedTraderId !== undefined) {
+        fields.push(`selected_trader_id = ?`);
+        values.push(updates.selectedTraderId || null);
+      }
+      if (updates.multisigContractAddress !== undefined) {
+        fields.push(`multisig_contract_address = ?`);
+        values.push(updates.multisigContractAddress || null);
+      }
+      if (updates.usdtInEscrow !== undefined) {
+        fields.push(`usdt_in_escrow = ?`);
+        values.push(updates.usdtInEscrow ? 1 : 0);
+      }
       if (updates.likes !== undefined) {
-        fields.push(`likes = $${paramIndex++}`);
+        fields.push(`likes = ?`);
         values.push(updates.likes);
       }
       if (updates.comments !== undefined) {
-        fields.push(`comments = $${paramIndex++}`);
+        fields.push(`comments = ?`);
         values.push(updates.comments);
       }
 
@@ -262,19 +319,19 @@ export class TransactionRepository {
         fields.push(`updated_at = CURRENT_TIMESTAMP`);
         values.push(id);
 
-        await client.query(
-          `UPDATE transactions SET ${fields.join(', ')} WHERE id = $${paramIndex}`,
+        await connection.execute(
+          `UPDATE transactions SET ${fields.join(', ')} WHERE id = ?`,
           values
         );
       }
 
-      await client.query('COMMIT');
+      await connection.commit();
       return this.findById(id);
     } catch (error) {
-      await client.query('ROLLBACK');
+      await connection.rollback();
       throw error;
     } finally {
-      client.release();
+      connection.release();
     }
   }
 
@@ -282,8 +339,9 @@ export class TransactionRepository {
    * 删除交易
    */
   static async delete(id: string): Promise<boolean> {
-    const result = await pool.query('DELETE FROM transactions WHERE id = $1', [id]);
-    return result.rowCount !== null && result.rowCount > 0;
+    const [result] = await pool.execute('DELETE FROM transactions WHERE id = ?', [id]);
+    const deleteResult = result as any;
+    return deleteResult.affectedRows > 0;
   }
 }
 

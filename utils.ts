@@ -1,8 +1,8 @@
-// Add TransactionReply to the types imported from types.ts and re-exported
-import { Currency, Privacy, Transaction, TransactionType, User, OTCState, TransactionReply } from './types';
+// Add TransactionReply and Bid to the types imported from types.ts and re-exported
+import { Currency, Privacy, Transaction, TransactionType, User, OTCState, TransactionReply, Bid } from './types';
 
 export { Currency, Privacy, TransactionType, OTCState };
-export type { Transaction, User, TransactionReply };
+export type { Transaction, User, TransactionReply, Bid };
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -16,11 +16,12 @@ export const PRODUCTION_CONFIG = {
 };
 // --------------------------------
 
+// 使用 DiceBear API 生成基于种子的一致头像，确保同一用户在不同浏览器中显示相同的头像
 export const MOCK_USER: User = {
   id: 'u1',
   handle: '@crypto_native',
   name: 'Alex Rivera',
-  avatar: 'https://picsum.photos/200/200?random=1',
+  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u1&backgroundColor=b6e3f4',
   walletAddress: '0x71C...9A23',
   isVerified: true,
   fiatDetails: {
@@ -35,7 +36,7 @@ export const FRIENDS: User[] = [
     id: 'u2',
     handle: '@sarah_j',
     name: 'Sarah Jones',
-    avatar: 'https://picsum.photos/200/200?random=2',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u2&backgroundColor=ffd5dc',
     walletAddress: '0xB2...11AA',
     isVerified: false,
      fiatDetails: {
@@ -48,7 +49,7 @@ export const FRIENDS: User[] = [
     id: 'u3',
     handle: '@mike_otc',
     name: 'Mike Chen',
-    avatar: 'https://picsum.photos/200/200?random=3',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u3&backgroundColor=c7d2fe',
     walletAddress: '0xC3...22BB',
     isVerified: true,
     fiatDetails: {
@@ -61,7 +62,7 @@ export const FRIENDS: User[] = [
     id: 'u4',
     handle: '@bella_ciao',
     name: 'Bella',
-    avatar: 'https://picsum.photos/200/200?random=4',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u4&backgroundColor=ffdfbf',
     walletAddress: '0xD4...33CC',
     isVerified: false
   }

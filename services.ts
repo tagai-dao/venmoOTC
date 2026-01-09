@@ -70,7 +70,7 @@ export const Services = {
                     }),
                 });
                 
-                // 存储 token 供后续请求使用
+                // 存储 token 和用户信息供后续请求使用
                 if (response.token) {
                     localStorage.setItem('auth_token', response.token);
                     console.log('✅ Login successful, token stored');
@@ -79,6 +79,9 @@ export const Services = {
                 if (!response.user) {
                     throw new Error('服务器返回的用户数据无效');
                 }
+                
+                // 存储用户信息到 localStorage，以便刷新页面后恢复
+                localStorage.setItem('current_user', JSON.stringify(response.user));
                 
                 console.log('✅ Login successful, user:', response.user.handle);
                 return response.user;
@@ -96,7 +99,21 @@ export const Services = {
                 console.error('Logout error:', error);
             } finally {
                 localStorage.removeItem('auth_token');
+                localStorage.removeItem('current_user');
             }
+        },
+        getCurrentUser: (): User | null => {
+            // 从 localStorage 恢复用户信息
+            const userStr = localStorage.getItem('current_user');
+            if (userStr) {
+                try {
+                    return JSON.parse(userStr) as User;
+                } catch (error) {
+                    console.error('Failed to parse current user from localStorage:', error);
+                    return null;
+                }
+            }
+            return null;
         }
     },
 
@@ -196,6 +213,14 @@ export const Services = {
                 body: JSON.stringify({ updates }),
             });
             return response.transaction;
+        },
+
+        selectTrader: async (transactionId: string, traderId: string): Promise<Transaction> => {
+            const response = await apiRequest<{ transaction: Transaction }>(`/api/transactions/${transactionId}/select-trader`, {
+                method: 'POST',
+                body: JSON.stringify({ traderId }),
+            });
+            return response.transaction;
         }
     },
 
@@ -217,5 +242,148 @@ export const Services = {
             const response = await apiRequest<{ user: User }>(`/api/users/${id}`);
             return response.user;
         }
-    }
+    },
+
+    // --- 6. Notifications Service ---
+    notifications: {
+        getNotifications: async (includeRead: boolean = false): Promise<any[]> => {
+            const params = new URLSearchParams();
+            if (includeRead) params.append('includeRead', 'true');
+            
+            const queryString = params.toString();
+            const endpoint = `/api/notifications${queryString ? `?${queryString}` : ''}`;
+            
+            const response = await apiRequest<{ notifications: any[] }>(endpoint);
+            return response.notifications;
+        },
+
+        getUnreadCount: async (): Promise<number> => {
+            const response = await apiRequest<{ count: number }>('/api/notifications/unread/count');
+            return response.count;
+        },
+
+        markAsRead: async (id: string): Promise<void> => {
+            await apiRequest(`/api/notifications/${id}/read`, {
+                method: 'PUT',
+            });
+        },
+
+        markAllAsRead: async (): Promise<void> => {
+            await apiRequest('/api/notifications/read/all', {
+                method: 'PUT',
+            });
+        },
+
+        deleteNotification: async (id: string): Promise<void> => {
+            await apiRequest(`/api/notifications/${id}`, {
+                method: 'DELETE',
+            });
+        }
+    },
+
+    // --- 7. Social Interactions Service ---
+    socialInteractions: {
+        likeTransaction: async (transactionId: string): Promise<{ hasLiked: boolean; likes: number }> => {
+            try {
+                const response = await apiRequest<{ success: boolean; hasLiked: boolean; likes: number }>(
+                    `/api/social-interactions/${transactionId}/like`,
+                    { method: 'POST' }
+                );
+                return {
+                    hasLiked: response.hasLiked,
+                    likes: response.likes
+                };
+            } catch (error: any) {
+                console.error('Like transaction API error:', error);
+                throw error;
+            }
+        },
+
+        checkUserLiked: async (transactionId: string): Promise<boolean> => {
+            const response = await apiRequest<{ hasLiked: boolean }>(
+                `/api/social-interactions/${transactionId}/liked`
+            );
+            return response.hasLiked;
+        },
+
+        addComment: async (transactionId: string, text: string, proof?: string): Promise<{ commentId: string; comments: number; transaction: Transaction }> => {
+            const response = await apiRequest<{ commentId: string; comments: number; transaction: Transaction }>(
+                `/api/social-interactions/${transactionId}/comment`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ text, proof }),
+                }
+            );
+            return response;
+        },
+
+        deleteComment: async (commentId: string): Promise<void> => {
+            await apiRequest(`/api/social-interactions/comment/${commentId}`, {
+                method: 'DELETE',
+            });
+        }
+    },
+
+    // --- 8. Bids Service ---
+    bids: {
+        createBid: async (transactionId: string, message?: string): Promise<{ bid: any }> => {
+            const response = await apiRequest<{ bid: any }>(`/api/bids/${transactionId}`, {
+                method: 'POST',
+                body: JSON.stringify({ message }),
+            });
+            return response;
+        },
+        getBids: async (transactionId: string): Promise<{ bids: any[] }> => {
+            const response = await apiRequest<{ bids: any[] }>(`/api/bids/${transactionId}`);
+            return response;
+        },
+        deleteBid: async (bidId: string): Promise<void> => {
+            await apiRequest(`/api/bids/${bidId}`, {
+                method: 'DELETE',
+            });
+        },
+    },
+
+    // --- 9. Multisig Service ---
+    multisig: {
+        createContract: async (transactionId: string, traderAddress: string, usdtAmount: number): Promise<{ multisig: any; message: string }> => {
+            const response = await apiRequest<{ multisig: any; message: string }>('/api/multisig/create', {
+                method: 'POST',
+                body: JSON.stringify({ transactionId, traderAddress, usdtAmount }),
+            });
+            return response;
+        },
+        sendUSDTToMultisig: async (transactionId: string): Promise<{ txHash: string; contractAddress: string; message: string }> => {
+            const response = await apiRequest<{ txHash: string; contractAddress: string; message: string }>('/api/multisig/send-usdt', {
+                method: 'POST',
+                body: JSON.stringify({ transactionId }),
+            });
+            return response;
+        },
+        activateMultisig: async (transactionId: string): Promise<{ txHash: string; message: string }> => {
+            const response = await apiRequest<{ txHash: string; message: string }>('/api/multisig/activate', {
+                method: 'POST',
+                body: JSON.stringify({ transactionId }),
+            });
+            return response;
+        },
+        getMultisig: async (transactionId: string): Promise<{ multisig: any }> => {
+            const response = await apiRequest<{ multisig: any }>(`/api/multisig/${transactionId}`);
+            return response;
+        },
+        signByTrader: async (transactionId: string): Promise<{ message: string }> => {
+            const response = await apiRequest<{ message: string }>('/api/multisig/sign-trader', {
+                method: 'POST',
+                body: JSON.stringify({ transactionId }),
+            });
+            return response;
+        },
+        signByRequester: async (transactionId: string): Promise<{ txHash?: string; message: string }> => {
+            const response = await apiRequest<{ txHash?: string; message: string }>('/api/multisig/sign-requester', {
+                method: 'POST',
+                body: JSON.stringify({ transactionId }),
+            });
+            return response;
+        },
+    },
 };

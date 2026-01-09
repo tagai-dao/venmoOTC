@@ -35,5 +35,11 @@ export const config = {
     appId: process.env.PRIVY_APP_ID || '',
     appSecret: process.env.PRIVY_APP_SECRET || '',
   },
+  
+  // JWT
+  jwt: {
+    secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  },
 };
 

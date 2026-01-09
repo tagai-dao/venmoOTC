@@ -10,18 +10,19 @@ export class WalletBalanceRepository {
    */
   static async getBalance(walletAddress: string, currency: Currency): Promise<number> {
     const currencyColumn = this.getCurrencyColumn(currency);
-    const result = await pool.query(
-      `SELECT ${currencyColumn} FROM wallet_balances WHERE wallet_address = $1`,
+    const [rows] = await pool.execute(
+      `SELECT ${currencyColumn} FROM wallet_balances WHERE wallet_address = ?`,
       [walletAddress]
     );
     
-    if (result.rows.length === 0) {
+    const result = rows as any[];
+    if (result.length === 0) {
       // 如果钱包不存在，创建默认余额记录
       await this.createDefaultBalance(walletAddress);
       return 0;
     }
     
-    return parseFloat(result.rows[0][currencyColumn] || '0');
+    return parseFloat(result[0][currencyColumn] || '0');
   }
 
   /**
@@ -34,13 +35,12 @@ export class WalletBalanceRepository {
   ): Promise<void> {
     const currencyColumn = this.getCurrencyColumn(currency);
     
-    // 使用 INSERT ... ON CONFLICT 确保记录存在
-    await pool.query(
+    // 使用 INSERT ... ON DUPLICATE KEY UPDATE 确保记录存在
+    await pool.execute(
       `INSERT INTO wallet_balances (wallet_address, ${currencyColumn})
-       VALUES ($1, $2)
-       ON CONFLICT (wallet_address)
-       DO UPDATE SET ${currencyColumn} = $2, updated_at = CURRENT_TIMESTAMP`,
-      [walletAddress, amount]
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE ${currencyColumn} = ?, updated_at = CURRENT_TIMESTAMP`,
+      [walletAddress, amount, amount]
     );
   }
 
@@ -55,12 +55,11 @@ export class WalletBalanceRepository {
     const currencyColumn = this.getCurrencyColumn(currency);
     
     // 先确保记录存在
-    await pool.query(
+    await pool.execute(
       `INSERT INTO wallet_balances (wallet_address, ${currencyColumn})
-       VALUES ($1, $2)
-       ON CONFLICT (wallet_address)
-       DO UPDATE SET ${currencyColumn} = wallet_balances.${currencyColumn} + $2, updated_at = CURRENT_TIMESTAMP`,
-      [walletAddress, amount]
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE ${currencyColumn} = wallet_balances.${currencyColumn} + ?, updated_at = CURRENT_TIMESTAMP`,
+      [walletAddress, amount, amount]
     );
   }
 
@@ -74,11 +73,11 @@ export class WalletBalanceRepository {
   ): Promise<void> {
     const currencyColumn = this.getCurrencyColumn(currency);
     
-    await pool.query(
+    await pool.execute(
       `UPDATE wallet_balances
-       SET ${currencyColumn} = ${currencyColumn} - $2, updated_at = CURRENT_TIMESTAMP
-       WHERE wallet_address = $1`,
-      [walletAddress, amount]
+       SET ${currencyColumn} = ${currencyColumn} - ?, updated_at = CURRENT_TIMESTAMP
+       WHERE wallet_address = ?`,
+      [amount, walletAddress]
     );
   }
 
@@ -86,14 +85,15 @@ export class WalletBalanceRepository {
    * 获取所有货币的余额
    */
   static async getAllBalances(walletAddress: string): Promise<Record<Currency, number>> {
-    const result = await pool.query(
+    const [rows] = await pool.execute(
       `SELECT usdt_balance, ngn_balance, ves_balance, usd_balance
        FROM wallet_balances
-       WHERE wallet_address = $1`,
+       WHERE wallet_address = ?`,
       [walletAddress]
     );
     
-    if (result.rows.length === 0) {
+    const result = rows as any[];
+    if (result.length === 0) {
       await this.createDefaultBalance(walletAddress);
       return {
         [Currency.USDT]: 0,
@@ -103,7 +103,7 @@ export class WalletBalanceRepository {
       };
     }
     
-    const row = result.rows[0];
+    const row = result[0];
     return {
       [Currency.USDT]: parseFloat(row.usdt_balance || '0'),
       [Currency.NGN]: parseFloat(row.ngn_balance || '0'),
@@ -116,10 +116,10 @@ export class WalletBalanceRepository {
    * 创建默认余额记录
    */
   private static async createDefaultBalance(walletAddress: string): Promise<void> {
-    await pool.query(
+    await pool.execute(
       `INSERT INTO wallet_balances (wallet_address, usdt_balance, ngn_balance, ves_balance, usd_balance)
-       VALUES ($1, 0, 0, 0, 0)
-       ON CONFLICT (wallet_address) DO NOTHING`,
+       VALUES (?, 0, 0, 0, 0)
+       ON DUPLICATE KEY UPDATE wallet_address = wallet_address`,
       [walletAddress]
     );
   }
@@ -137,4 +137,6 @@ export class WalletBalanceRepository {
     return mapping[currency];
   }
 }
+
+
 

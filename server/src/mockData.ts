@@ -1,12 +1,13 @@
 import { User, Transaction, Currency, Privacy, TransactionType, OTCState } from './types.js';
 
 // Mock 用户数据
+// 使用 DiceBear API 生成基于种子的一致头像，确保同一用户在不同浏览器中显示相同的头像
 export const mockUsers: User[] = [
   {
     id: 'u1',
     handle: '@crypto_native',
     name: 'Alex Rivera',
-    avatar: 'https://picsum.photos/200/200?random=1',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u1&backgroundColor=b6e3f4',
     walletAddress: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
     isVerified: true,
     fiatDetails: {
@@ -19,7 +20,7 @@ export const mockUsers: User[] = [
     id: 'u2',
     handle: '@sarah_j',
     name: 'Sarah Jones',
-    avatar: 'https://picsum.photos/200/200?random=2',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u2&backgroundColor=ffd5dc',
     walletAddress: '0xB2A1C1D1E1F1A1B1C1D1E1F1A1B1C1D1E1F1A1B1',
     isVerified: false,
     fiatDetails: {
@@ -32,7 +33,7 @@ export const mockUsers: User[] = [
     id: 'u3',
     handle: '@mike_otc',
     name: 'Mike Chen',
-    avatar: 'https://picsum.photos/200/200?random=3',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u3&backgroundColor=c7d2fe',
     walletAddress: '0xC3B2A1C1D1E1F1A1B1C1D1E1F1A1B1C1D1E1',
     isVerified: true,
     fiatDetails: {
@@ -45,7 +46,7 @@ export const mockUsers: User[] = [
     id: 'u4',
     handle: '@bella_ciao',
     name: 'Bella',
-    avatar: 'https://picsum.photos/200/200?random=4',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=u4&backgroundColor=ffdfbf',
     walletAddress: '0xD4C3B2A1C1D1E1F1A1B1C1D1E1F1A1B1C1D1',
     isVerified: false,
   },

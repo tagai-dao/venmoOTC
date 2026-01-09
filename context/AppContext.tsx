@@ -2,12 +2,26 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { User, Transaction, TransactionType, OTCState, Currency, Privacy, TransactionReply } from '../utils';
 import { Services } from '../services';
 
+interface Notification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  transactionId?: string;
+  relatedUserId?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
 interface AppContextType {
   currentUser: User | null;
   friends: User[];
   feed: Transaction[];
   isAuthenticated: boolean;
   walletBalance: { [key in Currency]: number };
+  notifications: Notification[];
+  unreadCount: number;
   login: (xHandle?: string) => Promise<void>;
   logout: () => Promise<void>;
   addTransaction: (t: Omit<Transaction, 'id' | 'timestamp'>) => Promise<void>;
@@ -16,6 +30,9 @@ interface AppContextType {
   isReady: boolean;
   refreshFeed: () => Promise<void>;
   refreshFriends: () => Promise<void>;
+  refreshNotifications: () => Promise<void>;
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -32,6 +49,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     [Currency.VES]: 0,
     [Currency.USD]: 0
   });
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // 获取交易列表
   const refreshFeed = async () => {
@@ -53,11 +72,64 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // 初始化：获取 feed 和用户列表
+  // 获取通知列表
+  const refreshNotifications = async () => {
+    if (!isAuthenticated) return;
+    
+    try {
+      const notifs = await Services.notifications.getNotifications(true);
+      setNotifications(notifs);
+      
+      const count = await Services.notifications.getUnreadCount();
+      setUnreadCount(count);
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+    }
+  };
+
+  // 标记通知为已读
+  const markNotificationAsRead = async (id: string) => {
+    try {
+      await Services.notifications.markAsRead(id);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
+  };
+
+  // 标记所有通知为已读
+  const markAllNotificationsAsRead = async () => {
+    try {
+      await Services.notifications.markAllAsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Failed to mark all notifications as read:', error);
+    }
+  };
+
+  // 初始化：恢复认证状态，获取 feed 和用户列表
   useEffect(() => {
     const initialize = async () => {
       try {
+        // 1. 尝试从 localStorage 恢复用户认证状态
+        const savedUser = Services.auth.getCurrentUser();
+        const authToken = localStorage.getItem('auth_token');
+        
+        if (savedUser && authToken) {
+          console.log('🔄 Restoring user session:', savedUser.handle);
+          setCurrentUser(savedUser);
+          setIsAuthenticated(true);
+        }
+        
+        // 2. 获取 feed 和用户列表
         await Promise.all([refreshFeed(), refreshFriends()]);
+        
+        // 3. 如果已登录，获取通知
+        if (savedUser && authToken) {
+          await refreshNotifications();
+        }
       } catch (error) {
         console.error('Failed to initialize:', error);
       } finally {
@@ -67,7 +139,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initialize();
   }, []);
 
-  // 当认证状态改变时，获取余额
+  // 当认证状态改变时，获取余额和通知
   useEffect(() => {
       if (isAuthenticated && currentUser) {
           const fetchBalances = async () => {
@@ -80,6 +152,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               }
           };
           fetchBalances();
+          refreshNotifications();
+          
+          // 定期刷新通知（每30秒）
+          const interval = setInterval(() => {
+            refreshNotifications();
+          }, 30000);
+          
+          return () => clearInterval(interval);
+      } else {
+        setNotifications([]);
+        setUnreadCount(0);
       }
   }, [isAuthenticated, currentUser?.walletAddress]);
 
@@ -88,8 +171,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const user = await Services.auth.loginWithX(xHandle);
           setCurrentUser(user);
           setIsAuthenticated(true);
-          // 登录后刷新 feed
-          await refreshFeed();
+          // 用户信息已在 Services.auth.loginWithX 中保存到 localStorage
+          // 登录后刷新 feed 和通知
+          await Promise.all([refreshFeed(), refreshNotifications()]);
       } catch (error) {
           console.error('Login failed:', error);
           throw error;
@@ -99,11 +183,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const logout = async () => {
       try {
           await Services.auth.logout();
+          // localStorage 已在 Services.auth.logout 中清理
       } catch (error) {
           console.error('Logout error:', error);
       } finally {
           setIsAuthenticated(false);
           setCurrentUser(null);
+          setNotifications([]);
+          setUnreadCount(0);
       }
   };
 
@@ -406,6 +493,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       feed,
       isAuthenticated, 
       walletBalance,
+      notifications,
+      unreadCount,
       login, 
       logout,
       addTransaction,
@@ -413,7 +502,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser,
       isReady,
       refreshFeed,
-      refreshFriends
+      refreshFriends,
+      refreshNotifications,
+      markNotificationAsRead,
+      markAllNotificationsAsRead
     }}>
       {children}
     </AppContext.Provider>

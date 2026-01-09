@@ -11,51 +11,125 @@ const __dirname = dirname(__filename);
  */
 export const initDatabase = async (): Promise<void> => {
   try {
-    const client = await pool.connect();
+    const connection = await pool.getConnection();
     
     try {
       // 读取并执行迁移脚本
-      const migrationPath = join(__dirname, 'migrations', '001_initial_schema.sql');
-      const migrationSQL = readFileSync(migrationPath, 'utf-8');
+      const migrationPaths = [
+        join(__dirname, 'migrations', '001_initial_schema.sql'),
+        join(__dirname, 'migrations', '004_create_notifications.sql'),
+        join(__dirname, 'migrations', '006_create_social_interactions.sql'),
+        join(__dirname, 'migrations', '007_add_bidding_and_multisig.sql'),
+        join(__dirname, 'migrations', '008_add_multisig_signatures.sql'),
+      ];
 
-      // 为了更好地调试，在逐条执行的基础上增加错误输出
-      const statements = migrationSQL
-        .split(';')
-        .map(s => s.trim())
-        .filter(s => s.length > 0 && !s.startsWith('--'));
+      for (const migrationPath of migrationPaths) {
+        const migrationSQL = readFileSync(migrationPath, 'utf-8');
+        const statements = migrationSQL
+          .split(';')
+          .map(s => s.trim())
+          .filter(s => s.length > 0 && !s.startsWith('--'));
 
-      for (const statement of statements) {
-        try {
-          if (statement) {
-            console.log('📜 Executing migration statement:\n', statement);
-            await client.query(statement);
+        for (const statement of statements) {
+          try {
+            if (statement) {
+              console.log('📜 Executing migration statement:\n', statement);
+              await connection.execute(statement);
+            }
+          } catch (err: any) {
+            // 先检查是否是已知的可忽略错误，避免打印错误信息
+            
+            // 如果索引已存在（ER_DUP_KEYNAME），跳过（允许重复执行迁移）
+            if (
+              (typeof err.code === 'string' && err.code === 'ER_DUP_KEYNAME') ||
+              (typeof err.errno === 'number' && err.errno === 1061) ||
+              (typeof err.code === 'number' && err.code === 1061)
+            ) {
+              console.warn('⚠️ Index already exists, skipping:', statement.substring(0, 50) + '...');
+              continue;
+            }
+
+            // 如果表已存在（ER_TABLE_EXISTS_ERROR），跳过（允许重复执行迁移）
+            if (
+              (typeof err.code === 'string' && err.code === 'ER_TABLE_EXISTS_ERROR') ||
+              (typeof err.errno === 'number' && err.errno === 1050) ||
+              (typeof err.code === 'number' && err.code === 1050)
+            ) {
+              console.warn('⚠️ Table already exists, skipping:', statement.substring(0, 50) + '...');
+              continue;
+            }
+
+            // 如果字段已存在（ER_DUP_FIELDNAME），跳过（允许重复执行迁移）
+            if (
+              (typeof err.code === 'string' && err.code === 'ER_DUP_FIELDNAME') ||
+              (typeof err.errno === 'number' && err.errno === 1060) ||
+              (typeof err.code === 'number' && err.code === 1060)
+            ) {
+              console.warn('⚠️ Column already exists, skipping:', statement.substring(0, 50) + '...');
+              continue;
+            }
+
+            // 如果是在创建索引时因为表不存在报错（ER_NO_SUCH_TABLE），先跳过索引创建
+            if (
+              (typeof err.code === 'string' && err.code === 'ER_NO_SUCH_TABLE') ||
+              (typeof err.errno === 'number' && err.errno === 1146) ||
+              (typeof err.code === 'number' && err.code === 1146)
+            ) {
+              if (/^CREATE\s+INDEX/i.test(statement)) {
+                console.warn(
+                  '⚠️ Skipping index creation because base table does not exist yet. ' +
+                    'You may need to recreate schema manually if this persists.'
+                );
+                continue;
+              } else if (/^CREATE\s+TABLE/i.test(statement)) {
+                console.warn(
+                  '⚠️ Table creation failed (possibly due to foreign key constraints). ' +
+                    'This may be expected if referenced tables do not exist yet.'
+                );
+                continue;
+              }
+            }
+
+            // 其他错误才记录并中断启动
+            console.error('❌ Error executing migration statement:\n', statement);
+            console.error('❌ Migration error details:', err);
+            throw err;
           }
-        } catch (err: any) {
-          console.error('❌ Error executing migration statement:\n', statement);
-          console.error('❌ Migration error details:', err);
-
-          // 如果是在创建索引时因为表不存在报错（42P01），先跳过索引创建，保证服务能启动
-          // 这种情况通常出现在手工误删表或 schema 半初始化的场景
-          if (
-            typeof err.code === 'string' &&
-            err.code === '42P01' &&
-            /^CREATE\s+INDEX/i.test(statement)
-          ) {
-            console.warn(
-              '⚠️ Skipping index creation because base table does not exist yet. ' +
-                'You may need to recreate schema manually if this persists.'
-            );
-            continue;
-          }
-
-          // 其他错误仍然中断启动
-          throw err;
         }
+      }
+
+      // 执行额外的 migration（003_add_fiat_rejection_count.sql）
+      try {
+        const additionalMigrationPath = join(__dirname, 'migrations', '003_add_fiat_rejection_count.sql');
+        const additionalMigrationSQL = readFileSync(additionalMigrationPath, 'utf-8');
+        const statements = additionalMigrationSQL
+          .split(';')
+          .map(s => s.trim())
+          .filter(s => s.length > 0 && !s.startsWith('--'));
+
+        for (const statement of statements) {
+          if (statement) {
+            try {
+              console.log('📜 Executing additional migration statement:\n', statement);
+              await connection.execute(statement);
+            } catch (err: any) {
+              // 如果字段已存在，忽略错误（允许重复执行）
+              if (err.code === 'ER_DUP_FIELDNAME' || err.code === 1060) {
+                console.log('ℹ️  Field fiat_rejection_count already exists, skipping...');
+              } else {
+                console.warn('⚠️  Additional migration warning:', err.message);
+              }
+            }
+          }
+        }
+        console.log('✅ Additional migrations executed successfully');
+      } catch (err: any) {
+        console.warn('⚠️  Additional migration warning:', err.message);
       }
 
       console.log('✅ Database schema initialized successfully');
     } finally {
-      client.release();
+      connection.release();
     }
   } catch (error) {
     console.error('❌ Failed to initialize database:', error);
@@ -68,7 +142,7 @@ export const initDatabase = async (): Promise<void> => {
  */
 export const seedDatabase = async (): Promise<void> => {
   try {
-    const client = await pool.connect();
+    const connection = await pool.getConnection();
     
     try {
       // 读取并执行种子数据脚本
@@ -83,13 +157,13 @@ export const seedDatabase = async (): Promise<void> => {
       
       for (const statement of statements) {
         if (statement) {
-          await client.query(statement);
+          await connection.execute(statement);
         }
       }
       
       console.log('✅ Database seeded successfully');
     } finally {
-      client.release();
+      connection.release();
     }
   } catch (error) {
     console.error('❌ Failed to seed database:', error);

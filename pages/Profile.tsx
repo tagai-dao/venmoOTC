@@ -75,9 +75,18 @@ const Profile: React.FC = () => {
   }
 
   // Your Activity: 显示所有与当前用户相关的交易，但如果有对应的 Activity 支付记录，则只显示 Activity 记录，不显示原始 Request
+  // Private 交易只对交易双方可见（这里已经通过 isRelated 过滤了，但为了明确性，我们保持这个逻辑）
   const personalFeed = feed.filter(t => {
     const isRelated = t.fromUser.id === currentUser.id || t.toUser?.id === currentUser.id;
     if (!isRelated) return false;
+    
+    // Private 交易只对交易双方可见（isRelated 已经保证了这一点）
+    // 但为了安全，我们明确检查：如果交易是 Private，确保当前用户是交易双方之一
+    if (t.privacy === Privacy.PRIVATE) {
+      const isFromUser = t.fromUser.id === currentUser.id;
+      const isToUser = t.toUser?.id === currentUser.id;
+      if (!isFromUser && !isToUser) return false;
+    }
     
     // 如果是 Request 类型的交易，检查是否存在对应的 Activity 支付记录
     if (t.type === TransactionType.REQUEST && t.isOTC) {
@@ -93,9 +102,9 @@ const Profile: React.FC = () => {
     return true;
   });
 
-  // Updated filter: Capture all active OTC requests involving the user
+  // Updated filter: Capture all active OTC requests involving the user (excluding failed requests)
   const pendingRequests = feed.filter(t => {
-      if (!t.isOTC || t.otcState === OTCState.NONE || t.otcState === OTCState.COMPLETED) return false;
+      if (!t.isOTC || t.otcState === OTCState.NONE || t.otcState === OTCState.COMPLETED || t.otcState === OTCState.FAILED) return false;
       
       const isMyReq = t.fromUser.id === currentUser.id;
       const isMyFulfillment = t.toUser?.id === currentUser.id;

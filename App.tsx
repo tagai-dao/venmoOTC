@@ -5,13 +5,16 @@ import Profile from './pages/Profile';
 import UserProfile from './pages/UserProfile';
 import { Home as HomeIcon, User as UserIcon } from 'lucide-react';
 import OTCActionModal from './components/OTCActionModal';
-import { User } from './utils';
+import { User, TransactionType } from './utils';
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'home' | 'profile'>('home');
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
-  const { isAuthenticated, currentUser } = useApp();
+  const [payInitialUser, setPayInitialUser] = useState<User | null>(null);
+  const [payInitialAddress, setPayInitialAddress] = useState<string | null>(null);
+  const [payInitialType, setPayInitialType] = useState<TransactionType>(TransactionType.REQUEST);
+  const { isAuthenticated, currentUser, friends } = useApp();
 
   // If not authenticated, force Profile view (which has the login screen)
   if (!isAuthenticated) {
@@ -32,6 +35,41 @@ const AppContent: React.FC = () => {
       setViewingUser(null);
   };
 
+  const handleScanAddress = (address: string) => {
+    if (!address) return;
+
+    const trimmed = address.trim();
+    const isEthAddress = /^0x[a-fA-F0-9]{40}$/.test(trimmed);
+    if (!isEthAddress) {
+      alert(`扫描结果不是有效的以太坊地址：\n${trimmed}`);
+      return;
+    }
+
+    // 在好友列表和当前用户中查找匹配的钱包地址（如果有的话就用现有用户信息）
+    const allUsers: User[] = [
+      ...friends,
+      ...(currentUser ? [currentUser] : []),
+    ];
+
+    const matchedUser = allUsers.find(
+      (u) => u.walletAddress.toLowerCase() === trimmed.toLowerCase()
+    );
+
+    setPayInitialType(TransactionType.PAYMENT);
+
+    if (matchedUser) {
+      // 扫描到的是联系人，直接预填收款人
+      setPayInitialUser(matchedUser);
+      setPayInitialAddress(null);
+    } else {
+      // 扫描到的是外部地址：直接跳转到支付页面，设置支付地址
+      setPayInitialUser(null);
+      setPayInitialAddress(trimmed);
+    }
+
+    setShowPayModal(true);
+  };
+
   return (
     <div className="max-w-md mx-auto min-h-screen bg-white shadow-2xl relative overflow-hidden flex flex-col">
       {/* Page Content */}
@@ -40,7 +78,12 @@ const AppContent: React.FC = () => {
             <UserProfile user={viewingUser} onBack={handleBackFromUser} />
         ) : (
             <>
-                {activeTab === 'home' && <Home onViewUser={handleViewUser} />}
+                {activeTab === 'home' && (
+                  <Home 
+                    onViewUser={handleViewUser} 
+                    onScanAddress={handleScanAddress}
+                  />
+                )}
                 {activeTab === 'profile' && <Profile />}
             </>
         )}
@@ -61,7 +104,11 @@ const AppContent: React.FC = () => {
               
               {/* Central Pay/Request Button */}
               <button 
-                onClick={() => setShowPayModal(true)}
+                onClick={() => {
+                  setPayInitialUser(null);
+                  setPayInitialType(TransactionType.REQUEST);
+                  setShowPayModal(true);
+                }}
                 className="flex flex-col items-center justify-center -mt-8 group"
               >
                 <div className="w-16 h-16 bg-blue-500 rounded-full shadow-lg shadow-blue-500/40 flex items-center justify-center text-white mb-1 transition-transform group-active:scale-95 border-4 border-white">
@@ -82,7 +129,17 @@ const AppContent: React.FC = () => {
           </nav>
       )}
 
-      {showPayModal && <OTCActionModal onClose={() => setShowPayModal(false)} />}
+      {showPayModal && (
+        <OTCActionModal 
+          onClose={() => {
+            setShowPayModal(false);
+            setPayInitialAddress(null);
+          }} 
+          initialType={payInitialType}
+          initialUser={payInitialUser}
+          initialAddress={payInitialAddress}
+        />
+      )}
     </div>
   );
 };

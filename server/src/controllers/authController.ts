@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { LoginRequest, LoginResponse } from '../types.js';
 import { UserRepository } from '../db/repositories/userRepository.js';
+import { generateToken } from '../utils/jwt.js';
 
 /**
  * X (Twitter) 登录
@@ -48,12 +49,19 @@ export const loginWithX = async (req: Request, res: Response) => {
     
     console.log('✅ Privy Wallet Created: ' + user.walletAddress);
     
+    // 生成 JWT token
+    const token = generateToken({
+      userId: user.id,
+      handle: user.handle,
+      walletAddress: user.walletAddress,
+    });
+    
     const response: LoginResponse = {
       user: user,
-      token: 'jwt_token_' + Date.now(), // JWT token
+      token: token,
     };
     
-    console.log('📤 Sending login response:', JSON.stringify({ user: { id: user.id, handle: user.handle }, token: response.token }));
+    console.log('📤 Sending login response:', JSON.stringify({ user: { id: user.id, handle: user.handle }, token: 'JWT_TOKEN_GENERATED' }));
     res.json(response);
   } catch (error: any) {
     console.error('❌ Login error:', error);

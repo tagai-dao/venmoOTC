@@ -1,25 +1,32 @@
 import express from 'express';
-import { getTransactions, createTransaction, updateTransaction } from '../controllers/transactionController.js';
+import { getTransactions, createTransaction, updateTransaction, selectTrader } from '../controllers/transactionController.js';
+import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
 /**
  * GET /api/transactions
- * 获取交易列表
+ * 获取交易列表（公开，但可选认证）
  */
-router.get('/', getTransactions);
+router.get('/', optionalAuth, getTransactions);
 
 /**
  * POST /api/transactions
- * 创建新交易
+ * 创建新交易（需要认证）
  */
-router.post('/', createTransaction);
+router.post('/', authenticateToken, createTransaction);
 
 /**
  * PUT /api/transactions/:id
- * 更新交易
+ * 更新交易（需要认证）
  */
-router.put('/:id', updateTransaction);
+router.put('/:id', authenticateToken, updateTransaction);
+
+/**
+ * POST /api/transactions/:id/select-trader
+ * 选择交易者（从抢单列表中选择）
+ */
+router.post('/:id/select-trader', authenticateToken, selectTrader);
 
 export default router;
 

@@ -1,12 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { User, Currency, Privacy, TransactionType, OTCState } from '../utils';
+import { Services } from '../services';
 import { X, Search, Globe, Users, Lock, ArrowDown, ChevronLeft, Twitter, Loader } from 'lucide-react';
 
 interface Props {
   onClose: () => void;
   initialType?: TransactionType;
   initialUser?: User | null;
+  initialAddress?: string | null;
 }
 
 const STICKERS = ['🍕', '☕️', '🎵', '🚗', '🍔', '🎁', '💡', '✈️'];
@@ -18,10 +20,11 @@ const EXCHANGE_RATES: Record<string, number> = {
     [Currency.USD]: 1.00
 };
 
-const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionType.REQUEST, initialUser = null }) => {
+const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionType.REQUEST, initialUser = null, initialAddress = null }) => {
   const { addTransaction, currentUser, friends } = useApp();
-  const [step, setStep] = useState(initialUser ? 2 : 1);
+  const [step, setStep] = useState(initialUser || initialAddress ? 2 : 1);
   const [selectedUser, setSelectedUser] = useState<User | null>(initialUser);
+  const [targetAddress, setTargetAddress] = useState<string | null>(initialAddress);
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState<Currency>(Currency.USDT);
   const [note, setNote] = useState('');
@@ -30,6 +33,8 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
   const [otcTargetCurrency, setOtcTargetCurrency] = useState<Currency>(Currency.NGN);
   const [transactionType, setTransactionType] = useState<TransactionType>(initialType);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAddressInput, setShowAddressInput] = useState(false);
+  const [addressInput, setAddressInput] = useState('');
   
   // Direction: True = USDT -> Fiat (Selling USDT), False = Fiat -> USDT (Buying USDT)
   const [isUSDTSource, setIsUSDTSource] = useState(true);
@@ -56,9 +61,21 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
 
     if (!currentUser) return;
 
+    // 支付时必须指定收款人（用户或地址）
+    if (transactionType === TransactionType.PAYMENT && !selectedUser && !targetAddress) {
+      alert('请选择收款人或输入收款地址');
+      return;
+    }
+
     // 验证：支付时不能给自己转账
     if (transactionType === TransactionType.PAYMENT && selectedUser && selectedUser.id === currentUser.id) {
       alert('不能给自己转账，请选择其他收款人');
+      return;
+    }
+
+    // 验证：支付时不能向自己的地址转账
+    if (transactionType === TransactionType.PAYMENT && targetAddress && targetAddress.toLowerCase() === currentUser.walletAddress.toLowerCase()) {
+      alert('不能向自己的地址转账');
       return;
     }
 
@@ -97,26 +114,57 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
         const rateDisplay = `(@ ${rate})`;
         finalNote = `${note.trim()}${directionTag} ${rateDisplay}`;
     }
+
+    // 如果是支付到地址（非联系人），toUser 应该为 null（因为地址不在用户表中）
+    // 但我们需要在 note 中记录地址信息，以便显示
+    let finalToUser: User | null = selectedUser;
+    let finalNoteWithAddress = finalNote;
     
-    await addTransaction({
-      fromUser: currentUser,
-      toUser: selectedUser,
-      amount: finalAmount,
-      currency: finalCurrency,
-      note: finalNote,
-      sticker: selectedSticker || undefined,
-      privacy: privacy,
-      type: transactionType,
-      isOTC: isOTC,
-      otcState: isOTC ? OTCState.OPEN_REQUEST : OTCState.NONE,
-      otcFiatCurrency: isOTC ? finalOtcFiat : undefined,
-      otcOfferAmount: isOTC ? finalOtcOfferAmount : undefined,
-      likes: 0,
-      comments: 0
-    });
-    
-    setIsSubmitting(false);
-    onClose();
+    if (transactionType === TransactionType.PAYMENT && !selectedUser && targetAddress) {
+      // 支付到地址时，toUser 为 null，地址信息记录在 note 中
+      finalToUser = null;
+      finalNoteWithAddress = finalNote 
+        ? `${finalNote}\n\n收款地址: ${targetAddress}`
+        : `支付到地址: ${targetAddress}`;
+    }
+
+    try {
+      // 如果是支付到地址，直接调用区块链服务
+      if (transactionType === TransactionType.PAYMENT && targetAddress && !selectedUser) {
+        try {
+          await Services.blockchain.sendUSDT(targetAddress, numAmount, currentUser.walletAddress);
+        } catch (error: any) {
+          console.error('支付失败:', error);
+          alert(error?.message || '支付失败，请重试');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+      
+      await addTransaction({
+        fromUser: currentUser,
+        toUser: finalToUser,
+        amount: finalAmount,
+        currency: finalCurrency,
+        note: finalNoteWithAddress,
+        sticker: selectedSticker || undefined,
+        privacy: privacy,
+        type: transactionType,
+        isOTC: isOTC,
+        otcState: isOTC ? OTCState.OPEN_REQUEST : OTCState.NONE,
+        otcFiatCurrency: isOTC ? finalOtcFiat : undefined,
+        otcOfferAmount: isOTC ? finalOtcOfferAmount : undefined,
+        likes: 0,
+        comments: 0
+      });
+      
+      setIsSubmitting(false);
+      onClose();
+    } catch (error: any) {
+      console.error('交易创建失败:', error);
+      alert(error?.message || '交易创建失败，请重试');
+      setIsSubmitting(false);
+    }
   };
 
   const renderRecipientSelect = () => (
@@ -172,12 +220,84 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
              </div>
          ) : (
             <>
-                <p className="px-4 py-2 text-xs font-bold text-gray-500 uppercase mt-2">Top People</p>
+                {/* 输入地址选项 */}
+                {!showAddressInput ? (
+                    <button 
+                        onClick={() => setShowAddressInput(true)}
+                        className="w-full px-4 py-4 flex items-center gap-3 hover:bg-gray-50 transition border-b"
+                    >
+                        <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                            <span className="text-xl">📝</span>
+                        </div>
+                        <div className="text-left">
+                            <p className="font-bold text-slate-900">输入钱包地址</p>
+                            <p className="text-sm text-slate-500">直接输入以太坊地址进行支付</p>
+                        </div>
+                    </button>
+                ) : (
+                    <div className="w-full px-4 py-4 border-b bg-blue-50/30">
+                        <div className="flex items-center gap-2 mb-3">
+                            <button
+                                onClick={() => {
+                                    setShowAddressInput(false);
+                                    setAddressInput('');
+                                }}
+                                className="p-1 hover:bg-gray-200 rounded-full transition"
+                            >
+                                <X className="w-4 h-4 text-gray-600" />
+                            </button>
+                            <p className="text-sm font-bold text-slate-900">输入以太坊地址</p>
+                        </div>
+                        <input
+                            type="text"
+                            value={addressInput}
+                            onChange={(e) => setAddressInput(e.target.value)}
+                            placeholder="0x..."
+                            className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            autoFocus
+                        />
+                        <div className="flex gap-2 mt-3">
+                            <button
+                                onClick={() => {
+                                    setShowAddressInput(false);
+                                    setAddressInput('');
+                                }}
+                                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const trimmed = addressInput.trim();
+                                    const isEthAddress = /^0x[a-fA-F0-9]{40}$/.test(trimmed);
+                                    if (isEthAddress) {
+                                        setTargetAddress(trimmed);
+                                        setSelectedUser(null);
+                                        setShowAddressInput(false);
+                                        setAddressInput('');
+                                        setStep(2);
+                                    } else {
+                                        alert('请输入有效的以太坊地址（0x开头，42个字符）');
+                                    }
+                                }}
+                                disabled={!addressInput.trim()}
+                                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                确认
+                            </button>
+                        </div>
+                    </div>
+                )}
+                <p className="px-4 py-2 text-xs font-bold text-gray-500 uppercase mt-2">联系人</p>
                 {friends.length > 0 ? (
                     friends.map(f => (
                         <button 
                             key={f.id} 
-                            onClick={() => { setSelectedUser(f); setStep(2); }}
+                            onClick={() => { 
+                                setSelectedUser(f); 
+                                setTargetAddress(null);
+                                setStep(2); 
+                            }}
                             className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition"
                         >
                             <img src={f.avatar} alt={f.name} className="w-12 h-12 rounded-full object-cover" />
@@ -210,6 +330,15 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
                 <>
                   <img src={selectedUser.avatar} className="w-6 h-6 rounded-full" />
                   <span className="text-sm font-bold">{selectedUser.name}</span>
+                </>
+             ) : targetAddress ? (
+                <>
+                  <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                    <span className="text-xs">📝</span>
+                  </div>
+                  <span className="text-sm font-bold font-mono">
+                    {targetAddress.substring(0, 6)}...{targetAddress.substring(38)}
+                  </span>
                 </>
              ) : (
                 <>
