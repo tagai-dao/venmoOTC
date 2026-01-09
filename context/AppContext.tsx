@@ -219,17 +219,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         throw new Error('不能给自己转账，请选择其他收款人');
       }
 
-      // 1. If it's Public on X, Post to X first
-      let xPostId: string | undefined;
-      if (t.privacy === Privacy.PUBLIC_X && t.type === TransactionType.REQUEST) {
-          const tweetContent = `Requesting ${t.isOTC ? `${t.amount} ${t.currency} for ${t.otcOfferAmount} ${t.otcFiatCurrency}` : `${t.amount} ${t.currency}`} on VenmoOTC! #DeFi #OTC`;
-          xPostId = await Services.social.postTweet(tweetContent);
-      }
-
-      // 2. Create transaction via API
+      // 创建交易（后端会自动处理 Twitter 发布，如果隐私设置为 PUBLIC_X）
       const newTransaction = await Services.transactions.createTransaction({
         ...t,
-        xPostId,
       });
 
       // 3. Update local state

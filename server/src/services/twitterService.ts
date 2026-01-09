@@ -158,32 +158,46 @@ export class TwitterService {
   }): string {
     let content = '';
 
-    if (transaction.type === 'REQUEST') {
-      if (transaction.isOTC) {
-        // OTC Request
-        const direction = transaction.currency === 'USDT' 
-          ? `Requesting ${transaction.amount} ${transaction.currency} for ${transaction.otcOfferAmount} ${transaction.otcFiatCurrency}`
-          : `Requesting ${transaction.amount} ${transaction.currency} (offering ${transaction.otcOfferAmount} ${transaction.otcFiatCurrency})`;
+    try {
+      if (transaction.type === 'REQUEST') {
+        if (transaction.isOTC) {
+          // OTC Request
+          const offerAmount = transaction.otcOfferAmount || 0;
+          const fiatCurrency = transaction.otcFiatCurrency || '';
+          
+          let direction = '';
+          if (transaction.currency === 'USDT') {
+            // Requesting USDT, offering Fiat
+            direction = `Requesting ${transaction.amount} ${transaction.currency} for ${offerAmount} ${fiatCurrency}`;
+          } else {
+            // Requesting Fiat, offering USDT
+            direction = `Requesting ${transaction.amount} ${transaction.currency} (offering ${offerAmount} USDT)`;
+          }
+          
+          content = `${direction} on VenmoOTC!${transaction.note ? `\n\n${transaction.note}` : ''}\n\n#DeFi #OTC #Crypto`;
+        } else {
+          // Regular Request
+          content = `${transaction.fromUser.name} (${transaction.fromUser.handle}) is requesting ${transaction.amount} ${transaction.currency}${transaction.note ? `\n\n${transaction.note}` : ''}\n\n#DeFi #Crypto`;
+        }
+      } else if (transaction.type === 'PAYMENT') {
+        // Payment
+        const recipient = transaction.toUser 
+          ? `${transaction.toUser.name} (${transaction.toUser.handle})`
+          : 'a wallet address';
         
-        content = `${direction} on VenmoOTC! ${transaction.note ? `\n\n${transaction.note}` : ''}\n\n#DeFi #OTC #Crypto`;
-      } else {
-        // Regular Request
-        content = `${transaction.fromUser.name} (${transaction.fromUser.handle}) is requesting ${transaction.amount} ${transaction.currency}${transaction.note ? `\n\n${transaction.note}` : ''}\n\n#DeFi #Crypto`;
+        content = `${transaction.fromUser.name} (${transaction.fromUser.handle}) paid ${transaction.amount} ${transaction.currency} to ${recipient}${transaction.note ? `\n\n${transaction.note}` : ''}\n\n#DeFi #Crypto`;
       }
-    } else if (transaction.type === 'PAYMENT') {
-      // Payment
-      const recipient = transaction.toUser 
-        ? `${transaction.toUser.name} (${transaction.toUser.handle})`
-        : 'a wallet address';
-      
-      content = `${transaction.fromUser.name} (${transaction.fromUser.handle}) paid ${transaction.amount} ${transaction.currency} to ${recipient}${transaction.note ? `\n\n${transaction.note}` : ''}\n\n#DeFi #Crypto`;
-    }
 
-    // 确保内容不超过 280 字符（Twitter 限制）
-    if (content.length > 280) {
-      content = content.substring(0, 277) + '...';
-    }
+      // 确保内容不超过 280 字符（Twitter 限制）
+      if (content.length > 280) {
+        content = content.substring(0, 277) + '...';
+      }
 
-    return content;
+      return content;
+    } catch (error: any) {
+      console.error('Error generating tweet content:', error);
+      // 返回一个简单的默认内容
+      return `${transaction.fromUser.name} (${transaction.fromUser.handle}) created a ${transaction.type} transaction on VenmoOTC! #DeFi #Crypto`;
+    }
   }
 }

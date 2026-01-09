@@ -1,5 +1,8 @@
 import { Currency, Transaction, User } from './utils';
 
+// API 基础地址
+// 如果需要更改端口，请直接修改下面的地址
+// 例如：如果后端运行在 3001 端口，改为 'http://localhost:3001'
 const API_BASE_URL = 'http://localhost:3001';
 
 // API 请求辅助函数

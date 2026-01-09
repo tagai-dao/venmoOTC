@@ -38,12 +38,24 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Transaction is required' });
     }
     
+    console.log('📝 Creating transaction:', JSON.stringify({
+      type: transaction.type,
+      amount: transaction.amount,
+      currency: transaction.currency,
+      isOTC: transaction.isOTC,
+      privacy: transaction.privacy,
+    }));
+    
     const newTransaction = await TransactionRepository.create(transaction);
+    console.log('✅ Transaction created:', newTransaction.id);
     
     // 如果隐私设置为 PUBLIC_X，发布到 Twitter
     if (newTransaction.privacy === Privacy.PUBLIC_X) {
       try {
+        console.log('🐦 Generating tweet content...');
         const tweetContent = TwitterService.generateTweetContent(newTransaction);
+        console.log('📝 Tweet content:', tweetContent);
+        
         const tweetResult = await TwitterService.postTweet(tweetContent);
         
         // 更新交易，保存推文 ID
@@ -55,18 +67,24 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       } catch (error: any) {
         // 如果 Twitter 发布失败，记录错误但不阻止交易创建
         console.error('❌ Failed to post transaction to Twitter:', error.message);
-        // 可以选择继续或返回错误，这里选择继续
+        console.error('Error details:', error);
+        // 继续执行，不阻止交易创建
       }
     }
     
-    // 创建通知
-    // 1. 如果是 REQUEST，通知目标用户
-    if (newTransaction.type === TransactionType.REQUEST) {
-      await NotificationService.notifyRequestCreated(newTransaction);
-    }
-    // 2. 如果是 PAYMENT，通知收款人
-    else if (newTransaction.type === TransactionType.PAYMENT && newTransaction.toUser) {
-      await NotificationService.notifyPaymentReceived(newTransaction);
+    // 创建通知（使用 try-catch 确保通知失败不会影响交易创建）
+    try {
+      // 1. 如果是 REQUEST，通知目标用户
+      if (newTransaction.type === TransactionType.REQUEST) {
+        await NotificationService.notifyRequestCreated(newTransaction);
+      }
+      // 2. 如果是 PAYMENT，通知收款人
+      else if (newTransaction.type === TransactionType.PAYMENT && newTransaction.toUser) {
+        await NotificationService.notifyPaymentReceived(newTransaction);
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to create notification:', error.message);
+      // 通知失败不影响交易创建
     }
     
     // 重新获取交易（包含更新的 xPostId）
@@ -74,8 +92,12 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
     
     res.status(201).json({ transaction: updatedTransaction || newTransaction });
   } catch (error: any) {
-    console.error('Create transaction error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create transaction' });
+    console.error('❌ Create transaction error:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: error.message || 'Failed to create transaction',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 

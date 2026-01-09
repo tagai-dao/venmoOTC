@@ -16,7 +16,7 @@ import multisigRoutes from './routes/multisig.js';
 const app = express();
 
 // 中间件
-// 开发环境下放宽 CORS 限制，支持 localhost 不同端口（如 3000/3001/3002 等）
+// 开发环境下放宽 CORS 限制，支持 localhost 不同端口（如 3000/3001 等）
 if (config.nodeEnv === 'development') {
   app.use(cors({
     origin: (origin, callback) => {
