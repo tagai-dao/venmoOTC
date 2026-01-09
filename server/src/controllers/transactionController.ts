@@ -138,30 +138,42 @@ export const selectTrader = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: { message: 'Unauthorized' } });
     }
 
     const { id } = req.params;
     const { traderId } = req.body;
 
+    console.log(`🔍 Select trader request: transactionId=${id}, traderId=${traderId}, userId=${userId}`);
+
     if (!traderId) {
-      return res.status(400).json({ error: 'Trader ID is required' });
+      console.error('❌ Trader ID is missing');
+      return res.status(400).json({ error: { message: 'Trader ID is required' } });
     }
 
     // 检查交易是否存在
     const transaction = await TransactionRepository.findById(id);
     if (!transaction) {
-      return res.status(404).json({ error: 'Transaction not found' });
+      console.error(`❌ Transaction not found: ${id}`);
+      return res.status(404).json({ error: { message: 'Transaction not found' } });
     }
+
+    console.log(`📊 Transaction state: ${transaction.otcState}, fromUser: ${transaction.fromUser.id}`);
 
     // 检查是否是请求发起者
     if (transaction.fromUser.id !== userId) {
-      return res.status(403).json({ error: 'Only the requester can select a trader' });
+      console.error(`❌ Permission denied: userId=${userId}, transaction.fromUser.id=${transaction.fromUser.id}`);
+      return res.status(403).json({ error: { message: 'Only the requester can select a trader' } });
     }
 
     // 检查交易状态
     if (transaction.otcState !== OTCState.BIDDING && transaction.otcState !== OTCState.OPEN_REQUEST) {
-      return res.status(400).json({ error: 'Transaction must be in BIDDING or OPEN_REQUEST state' });
+      console.error(`❌ Invalid transaction state: ${transaction.otcState}, expected BIDDING or OPEN_REQUEST`);
+      return res.status(400).json({ 
+        error: { 
+          message: `Transaction must be in BIDDING or OPEN_REQUEST state. Current state: ${transaction.otcState}` 
+        } 
+      });
     }
 
     // 更新交易：选择交易者并更新状态
@@ -171,16 +183,19 @@ export const selectTrader = async (req: AuthRequest, res: Response) => {
     });
 
     if (!updatedTransaction) {
-      return res.status(404).json({ error: 'Transaction not found' });
+      console.error(`❌ Failed to update transaction: ${id}`);
+      return res.status(404).json({ error: { message: 'Transaction not found' } });
     }
+
+    console.log(`✅ Trader selected successfully: transactionId=${id}, traderId=${traderId}`);
 
     // 创建通知
     await NotificationService.notifyRequestStateChanged(transaction, transaction.otcState, OTCState.SELECTED_TRADER);
 
     res.json({ transaction: updatedTransaction });
   } catch (error: any) {
-    console.error('Select trader error:', error);
-    res.status(500).json({ error: error.message || 'Failed to select trader' });
+    console.error('❌ Select trader error:', error);
+    res.status(500).json({ error: { message: error.message || 'Failed to select trader' } });
   }
 };
 

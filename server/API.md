@@ -10,15 +10,19 @@ http://localhost:3001
 
 ## 认证 API
 
-### POST /api/auth/login
+### POST /api/auth/privy
 
-X (Twitter) 登录
+Privy 登录（同步用户到后端）
+这是唯一的登录方式，通过 Privy 钱包登录（支持 Twitter 登录）
 
 **请求体:**
 ```json
 {
-  "xToken": "optional_token",
-  "xTokenSecret": "optional_secret"
+  "walletAddress": "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+  "handle": "@crypto_native",
+  "name": "Alex Rivera",
+  "avatar": "https://picsum.photos/200/200?random=1",
+  "privyUserId": "privy_user_id_123"
 }
 ```
 
@@ -38,7 +42,7 @@ X (Twitter) 登录
       "accountName": "Alex Rivera"
     }
   },
-  "token": "mock_jwt_token_1234567890"
+  "token": "jwt_token_1234567890"
 }
 ```
 

@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
 import { useApp } from '../context/AppContext';
 import { User, Currency, Privacy, TransactionType, OTCState } from '../utils';
 import { Services } from '../services';
+import { sendUSDTWithPrivy } from '../services/privyBlockchainService';
 import { X, Search, Globe, Users, Lock, ArrowDown, ChevronLeft, Twitter, Loader } from 'lucide-react';
 
 interface Props {
@@ -20,8 +22,60 @@ const EXCHANGE_RATES: Record<string, number> = {
     [Currency.USD]: 1.00
 };
 
-const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionType.REQUEST, initialUser = null, initialAddress = null }) => {
-  const { addTransaction, currentUser, friends } = useApp();
+// 检查是否配置了 Privy（确保与 App.tsx 中的 PrivyWrapper 逻辑完全一致）
+const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || '';
+const hasPrivy = !!(privyAppId && privyAppId.trim() !== '');
+
+// 内部组件：只有在 PrivyProvider 存在时才调用 usePrivy
+const OTCActionModalWithPrivy: React.FC<Props> = (props) => {
+  // 只有在 PrivyProvider 存在时才调用 usePrivy
+  // 注意：如果 PrivyProvider 没有正确初始化，usePrivy 会抛出错误
+  // 这应该不会发生，因为 App.tsx 中的 PrivyWrapper 会根据 hasPrivy 决定是否渲染 PrivyProvider
+  const { ready, authenticated, getEthersProvider, login: privyLogin } = usePrivy();
+  
+  return (
+    <OTCActionModalContent
+      {...props}
+      ready={ready}
+      authenticated={authenticated}
+      getEthersProvider={getEthersProvider}
+      privyLogin={privyLogin}
+    />
+  );
+};
+
+// 内部组件：没有 Privy 时的版本
+const OTCActionModalWithoutPrivy: React.FC<Props> = (props) => {
+  return (
+    <OTCActionModalContent
+      {...props}
+      ready={false}
+      authenticated={false}
+      getEthersProvider={undefined}
+      privyLogin={undefined}
+    />
+  );
+};
+
+// 主要的 Modal 内容组件
+interface ModalContentProps extends Props {
+  ready: boolean;
+  authenticated: boolean;
+  getEthersProvider?: () => Promise<any>;
+  privyLogin?: (options?: any) => Promise<void>;
+}
+
+const OTCActionModalContent: React.FC<ModalContentProps> = ({ 
+  onClose, 
+  initialType = TransactionType.REQUEST, 
+  initialUser = null, 
+  initialAddress = null,
+  ready,
+  authenticated,
+  getEthersProvider,
+  privyLogin
+}) => {
+  const { addTransaction, currentUser, friends, walletBalance } = useApp();
   const [step, setStep] = useState(initialUser || initialAddress ? 2 : 1);
   const [selectedUser, setSelectedUser] = useState<User | null>(initialUser);
   const [targetAddress, setTargetAddress] = useState<string | null>(initialAddress);
@@ -35,9 +89,64 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAddressInput, setShowAddressInput] = useState(false);
   const [addressInput, setAddressInput] = useState('');
+  const [usdtBalance, setUsdtBalance] = useState<number | null>(null);
+  const [ngnBalance, setNgnBalance] = useState<number | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  
+  // 使用 ref 存储最新的 Privy 状态，确保在异步函数中能访问到最新值
+  const privyStateRef = useRef({ ready, authenticated, getEthersProvider, privyLogin });
+  
+  // 当 Privy 状态改变时，更新 ref
+  useEffect(() => {
+    privyStateRef.current = { ready, authenticated, getEthersProvider, privyLogin };
+  }, [ready, authenticated, getEthersProvider, privyLogin]);
   
   // Direction: True = USDT -> Fiat (Selling USDT), False = Fiat -> USDT (Buying USDT)
   const [isUSDTSource, setIsUSDTSource] = useState(true);
+  
+  // 在第二步打开时（选择支付对象之后），获取当前账户的真实余额
+  useEffect(() => {
+    if (step === 2 && currentUser) {
+      const fetchCurrentBalance = async () => {
+        setIsLoadingBalance(true);
+        try {
+          console.log('💰 第二步：获取当前连接账户的余额...');
+          console.log('钱包地址:', currentUser.walletAddress);
+          
+          // 获取 USDT 余额（链上查询）
+          try {
+            const usdt = await Services.blockchain.getBalance(currentUser.walletAddress, Currency.USDT);
+            setUsdtBalance(usdt);
+            console.log('✅ USDT 余额已更新:', usdt);
+          } catch (error) {
+            console.error('获取 USDT 余额失败:', error);
+            // 如果链上查询失败，使用 AppContext 中的余额作为降级
+            setUsdtBalance(walletBalance[Currency.USDT] || 0);
+          }
+          
+          // 获取 NGN 余额（数据库）
+          try {
+            const ngn = await Services.blockchain.getBalance(currentUser.walletAddress, Currency.NGN);
+            setNgnBalance(ngn);
+            console.log('✅ NGN 余额已更新:', ngn);
+          } catch (error) {
+            console.error('获取 NGN 余额失败:', error);
+            // 使用 AppContext 中的余额作为降级
+            setNgnBalance(walletBalance[Currency.NGN] || 0);
+          }
+        } catch (error) {
+          console.error('获取余额失败:', error);
+          // 使用 AppContext 中的余额作为降级
+          setUsdtBalance(walletBalance[Currency.USDT] || 0);
+          setNgnBalance(walletBalance[Currency.NGN] || 0);
+        } finally {
+          setIsLoadingBalance(false);
+        }
+      };
+      
+      fetchCurrentBalance();
+    }
+  }, [step, currentUser?.walletAddress, walletBalance]);
 
   // Calculate the Target Amount based on Exchange Rate
   const convertedAmount = useMemo(() => {
@@ -128,16 +237,337 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
         : `支付到地址: ${targetAddress}`;
     }
 
-    try {
-      // 如果是支付到地址，直接调用区块链服务
-      if (transactionType === TransactionType.PAYMENT && targetAddress && !selectedUser) {
+    // 存储 Privy 转账的交易哈希（如果成功）
+    let privyTxHash: string | null = null;
+    
+    // 辅助函数：等待并获取 Privy provider（如果未登录则自动触发登录）
+    const getPrivyProviderWithAutoLogin = async (maxWaitTime: number = 60000): Promise<any> => {
+      const startTime = Date.now();
+      const checkInterval = 500; // 每 500ms 检查一次
+      
+      // 首先检查是否已经可以获取 provider（使用 ref 中的最新值）
+      const currentState = privyStateRef.current;
+      if (currentState.ready && currentState.authenticated && 
+          currentState.getEthersProvider && typeof currentState.getEthersProvider === 'function') {
         try {
-          await Services.blockchain.sendUSDT(targetAddress, numAmount, currentUser.walletAddress);
+          const provider = await currentState.getEthersProvider();
+          if (provider) {
+            console.log('✅ Privy 已连接，直接获取 provider');
+            return provider;
+          }
+        } catch (error) {
+          console.log('⚠️ 获取 provider 失败，需要登录');
+        }
+      }
+      
+      // 如果未登录，优先使用 Twitter 登录（因为用户要求使用 Twitter 关联的 Privy 钱包）
+      if (!currentState.ready || !currentState.authenticated || 
+          !currentState.getEthersProvider || typeof currentState.getEthersProvider !== 'function') {
+        console.log('⚠️ Privy 未连接，自动触发 Twitter 登录...');
+        console.log('Privy 状态:', {
+          ready: currentState.ready,
+          authenticated: currentState.authenticated,
+          hasGetEthersProvider: !!currentState.getEthersProvider,
+          hasPrivyLogin: !!currentState.privyLogin
+        });
+        
+        // 检查 Privy 是否就绪
+        if (!currentState.ready) {
+          throw new Error('Privy 钱包服务正在初始化，请稍候几秒钟后重试。');
+        }
+        
+        if (!currentState.privyLogin) {
+          throw new Error('无法连接钱包。请检查 Privy 配置。');
+        }
+        
+        // 优先使用 Twitter 登录（会弹出 Privy Twitter 登录框）
+        // 这样可以直接使用 Twitter 关联的 Privy 钱包地址
+        let loginInitiated = false;
+        try {
+          console.log('🔐 正在触发 Twitter 登录...');
+          
+          // 调用 privyLogin 会打开 Privy 登录弹窗
+          // 注意：这个函数会立即返回，不会等待用户完成登录
+          const loginPromise = currentState.privyLogin({ loginMethod: 'twitter' });
+          
+          // 等待一小段时间，确保登录弹窗已打开
+          await Promise.race([
+            loginPromise,
+            new Promise(resolve => setTimeout(resolve, 2000)) // 最多等待 2 秒
+          ]);
+          
+          loginInitiated = true;
+          console.log('✅ Twitter 登录弹窗应已打开，请完成登录...');
+          console.log('📝 登录后将使用 Twitter 关联的 Privy 钱包地址进行支付');
+          console.log('💡 如果未看到登录弹窗，请检查浏览器是否阻止了弹窗');
+          
+          // 再等待一小段时间让 Privy 开始处理
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (twitterError: any) {
+          console.error('Twitter 登录失败:', twitterError);
+          
+          // 检查是否是用户取消
+          if (twitterError?.code === 'USER_CANCELLED' || twitterError?.message?.includes('cancelled')) {
+            throw new Error('登录已取消。请重新点击 Pay 并完成登录。');
+          }
+          
+          // 如果 Twitter 登录失败，尝试通用登录（用户可以选择 Twitter）
+          try {
+            console.log('⚠️ Twitter 登录失败，尝试通用登录...');
+            
+            // 调用 privyLogin 会打开 Privy 登录弹窗
+            const loginPromise = currentState.privyLogin();
+            
+            // 等待一小段时间，确保登录弹窗已打开
+            await Promise.race([
+              loginPromise,
+              new Promise(resolve => setTimeout(resolve, 2000)) // 最多等待 2 秒
+            ]);
+            
+            loginInitiated = true;
+            console.log('✅ 通用登录弹窗应已打开，请完成登录...');
+            console.log('💡 如果未看到登录弹窗，请检查浏览器是否阻止了弹窗');
+            
+            // 再等待一小段时间让 Privy 开始处理
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } catch (fallbackError: any) {
+            console.error('通用登录也失败:', fallbackError);
+            
+            // 检查是否是用户取消
+            if (fallbackError?.code === 'USER_CANCELLED' || fallbackError?.message?.includes('cancelled')) {
+              throw new Error('登录已取消。请重新点击 Pay 并完成登录。');
+            }
+            
+            throw new Error('无法连接钱包。请检查 Privy 配置或稍后重试。');
+          }
+        }
+        
+        // 如果登录弹窗没有打开，给用户提示
+        if (!loginInitiated) {
+          throw new Error('登录弹窗未能打开。请检查浏览器是否阻止了弹窗，或刷新页面后重试。');
+        }
+      }
+      
+      // 轮询等待登录完成并获取 provider
+      let attemptCount = 0;
+      while (Date.now() - startTime < maxWaitTime) {
+        attemptCount++;
+        const elapsedTime = Date.now() - startTime;
+        
+        try {
+          // 每次检查时，使用 ref 中的最新值
+          const latestState = privyStateRef.current;
+          
+          // 详细日志
+          if (attemptCount % 10 === 0) { // 每 5 秒输出一次详细日志
+            console.log(`⏳ 等待 Privy 登录... (${Math.floor(elapsedTime / 1000)}s)`, {
+              ready: latestState.ready,
+              authenticated: latestState.authenticated,
+              hasGetEthersProvider: !!latestState.getEthersProvider,
+              isFunction: typeof latestState.getEthersProvider === 'function'
+            });
+            console.log('💡 提示：如果看到 Privy 登录弹窗，请完成登录流程');
+          }
+          
+          // 每 10 秒提醒用户一次
+          if (attemptCount % 20 === 0 && elapsedTime > 10000) {
+            console.warn(`⚠️ 已等待 ${Math.floor(elapsedTime / 1000)} 秒，请确认是否已完成 Privy 登录`);
+          }
+          
+          // 首先检查状态
+          if (!latestState.ready) {
+            // Privy 还未就绪，继续等待
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            continue;
+          }
+          
+          if (!latestState.authenticated) {
+            // Privy 还未认证，继续等待
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            continue;
+          }
+          
+          // 检查 getEthersProvider 是否可用
+          if (!latestState.getEthersProvider || typeof latestState.getEthersProvider !== 'function') {
+            // getEthersProvider 还未可用，继续等待
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            continue;
+          }
+          
+          // 尝试获取 provider
+          console.log('🔄 尝试获取 Privy provider...');
+          const provider = await latestState.getEthersProvider();
+          
+          if (provider) {
+            console.log('✅ Privy 登录完成，钱包已连接');
+            console.log('📊 登录耗时:', Math.floor(elapsedTime / 1000), '秒');
+            return provider;
+          }
         } catch (error: any) {
-          console.error('支付失败:', error);
-          alert(error?.message || '支付失败，请重试');
+          // 如果获取 provider 失败，记录错误但继续等待
+          const errorMsg = error?.message || String(error);
+          
+          // 如果是"未认证"相关的错误，继续等待
+          if (errorMsg.includes('not authenticated') || 
+              errorMsg.includes('not ready') ||
+              errorMsg.includes('not connected') ||
+              errorMsg.includes('not logged in')) {
+            if (attemptCount % 10 === 0) {
+              console.log(`⏳ 等待 Privy 登录完成... (${Math.floor(elapsedTime / 1000)}s) - ${errorMsg}`);
+            }
+          } else {
+            // 其他错误，详细记录
+            console.warn('⚠️ 获取 Privy provider 时出错:', errorMsg);
+          }
+        }
+        
+        // 等待一段时间后再次检查
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+      
+      // 超时前，最后一次尝试
+      console.log('⏳ 超时前最后一次尝试获取 provider...');
+      try {
+        const finalState = privyStateRef.current;
+        if (finalState.ready && finalState.authenticated && 
+            finalState.getEthersProvider && typeof finalState.getEthersProvider === 'function') {
+          const provider = await finalState.getEthersProvider();
+          if (provider) {
+            console.log('✅ 最后一次尝试成功！');
+            return provider;
+          }
+        }
+      } catch (error: any) {
+        console.error('❌ 最后一次尝试也失败:', error?.message);
+      }
+      
+      // 输出最终状态用于调试
+      const finalState = privyStateRef.current;
+      console.error('❌ Privy 登录超时', {
+        ready: finalState.ready,
+        authenticated: finalState.authenticated,
+        hasGetEthersProvider: !!finalState.getEthersProvider,
+        isFunction: typeof finalState.getEthersProvider === 'function',
+        elapsedTime: Math.floor((Date.now() - startTime) / 1000) + '秒'
+      });
+      
+      // 提供更详细的错误信息
+      let errorMessage = '登录超时，请重试。';
+      if (!finalState.ready) {
+        errorMessage += '\n\nPrivy 钱包服务未就绪，请刷新页面后重试。';
+      } else if (!finalState.authenticated) {
+        errorMessage += '\n\n未检测到登录完成。请确认：\n1. 是否看到了 Privy 登录弹窗？\n2. 是否完成了 Twitter 登录？\n3. 登录弹窗是否已关闭？';
+      } else if (!finalState.getEthersProvider) {
+        errorMessage += '\n\n登录已完成，但钱包连接不可用。请刷新页面后重试。';
+      }
+      
+      throw new Error(errorMessage);
+    };
+    
+    try {
+      // 所有 USDT 支付都需要 Privy 发送真实的 USDT（不管是支付给联系人还是外部地址）
+      // Request 不需要 Privy（因为 Request 是请求，不是支付）
+      if (transactionType === TransactionType.PAYMENT && finalCurrency === Currency.USDT) {
+        // 确定收款地址
+        const recipientAddress = selectedUser?.walletAddress || targetAddress;
+        
+        if (!recipientAddress) {
+          alert('请选择收款人或输入收款地址');
           setIsSubmitting(false);
           return;
+        }
+        
+        console.log('💳 USDT 支付，准备发送...');
+        console.log('收款地址:', recipientAddress);
+        console.log('金额:', numAmount);
+        
+        try {
+          // 检查 Privy 是否已配置
+          if (!hasPrivy) {
+            alert('钱包功能未启用。\n\n要启用钱包功能，请：\n1. 在项目根目录创建 .env 文件\n2. 添加：VITE_PRIVY_APP_ID=你的_privy_app_id\n3. 重启开发服务器\n\n详情请参考 PRIVY_SETUP.md 文件。');
+            setIsSubmitting(false);
+            return;
+          }
+
+          // 获取 Privy provider（如果未登录会自动触发登录并等待完成）
+          console.log('🔗 获取 Privy provider...');
+          const provider = await getPrivyProviderWithAutoLogin(60000);
+          
+          if (!provider) {
+            throw new Error('无法获取钱包连接。请确保已连接 Privy 钱包。');
+          }
+
+          // 获取当前 Privy 钱包地址（用于日志记录）
+          let senderAddress = 'Unknown';
+          try {
+            const signer = await provider.getSigner();
+            senderAddress = await signer.getAddress();
+            console.log('💼 使用 Privy 钱包地址:', senderAddress);
+          } catch (error) {
+            console.warn('无法获取发送方地址:', error);
+          }
+          
+          // 使用 Privy 发送 USDT（会弹出签名确认框）
+          console.log('📤 准备发送 USDT via Privy...');
+          console.log('From: Privy 钱包地址', senderAddress);
+          console.log('To:', recipientAddress);
+          console.log('Amount:', numAmount, 'USDT');
+          console.log('⏳ 等待用户确认签名...');
+          
+          // 调用 sendUSDTWithPrivy 会触发 Privy 的签名确认弹窗
+          // 这将使用 Twitter 关联的 Privy 钱包地址进行支付
+          privyTxHash = await sendUSDTWithPrivy(provider, recipientAddress, numAmount);
+          
+          if (!privyTxHash) {
+            throw new Error('交易哈希为空，转账可能未成功');
+          }
+          
+          console.log('✅ USDT sent successfully! TxHash:', privyTxHash);
+          console.log('🔗 View on BscScan: https://bscscan.com/tx/' + privyTxHash);
+          
+          // 支付成功后，刷新余额
+          if (currentUser) {
+            try {
+              const newUsdtBalance = await Services.blockchain.getBalance(currentUser.walletAddress, Currency.USDT);
+              setUsdtBalance(newUsdtBalance);
+              console.log('✅ USDT 余额已刷新:', newUsdtBalance);
+            } catch (error) {
+              console.error('刷新余额失败:', error);
+            }
+          }
+          
+          // 显示成功消息
+          alert(`✅ USDT 发送成功！\n交易哈希: ${privyTxHash}\n\n您可以在 BscScan 上查看交易详情。`);
+        } catch (error: any) {
+          console.error('❌ Privy 支付失败:', error);
+          console.error('错误详情:', {
+            message: error?.message,
+            code: error?.code,
+            reason: error?.reason,
+            stack: error?.stack
+          });
+          
+          // 处理各种错误情况
+          const errorMessage = error?.message || '支付失败，请重试';
+          
+          // 用户取消交易
+          if (error?.code === 'ACTION_REJECTED' || errorMessage.includes('用户取消') || errorMessage.includes('rejected')) {
+            console.log('用户取消了交易');
+            setIsSubmitting(false);
+            return; // 用户取消，不显示错误，直接返回
+          }
+          
+          // 余额不足
+          if (error?.code === 'INSUFFICIENT_FUNDS' || errorMessage.includes('余额不足')) {
+            alert(`支付失败: 余额不足\n\n当前余额可能不足以支付 ${numAmount} USDT。`);
+            setIsSubmitting(false);
+            return;
+          }
+          
+          // 其他错误
+          alert(`支付失败: ${errorMessage}\n\n交易记录不会被创建。`);
+          setIsSubmitting(false);
+          return; // 重要：支付失败时，不创建交易记录
         }
       }
       
@@ -318,6 +748,7 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
     </div>
   );
 
+
   const renderAmountEntry = () => (
     <div className="h-full flex flex-col p-6 overflow-y-auto no-scrollbar pb-32">
       {/* Recipient Indicator */}
@@ -371,7 +802,9 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
                     autoFocus
                 />
              </div>
-             <p className="text-sm text-gray-400 mt-2">Balance: {Currency.USDT} 1,250.50</p>
+             <p className="text-sm text-gray-400 mt-2">
+               Balance: {Currency.USDT} {isLoadingBalance ? '...' : (usdtBalance !== null ? usdtBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')}
+             </p>
           </div>
       ) : (
           /* UNISWAP STYLE OTC INTERFACE */
@@ -407,7 +840,9 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
                       </div>
                   </div>
                   <div className="mt-1 text-xs text-gray-400 pl-1">
-                      Balance: {isUSDTSource ? '1,250.50 ₮' : '50,000 Local'}
+                      Balance: {isUSDTSource 
+                        ? `${isLoadingBalance ? '...' : (usdtBalance !== null ? usdtBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')} ₮`
+                        : `${isLoadingBalance ? '...' : (ngnBalance !== null ? ngnBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')} ${otcTargetCurrency}`}
                   </div>
               </div>
 
@@ -543,15 +978,17 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 p-6 bg-white border-t max-w-md mx-auto z-20">
-        <button 
-            disabled={!amount || isSubmitting}
-            onClick={handleSend}
-            className="w-full bg-blue-500 text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-500/30 disabled:opacity-50 disabled:shadow-none active:scale-95 transition-all text-lg flex items-center justify-center gap-2"
-        >
-            {isSubmitting && <Loader className="w-5 h-5 animate-spin" />}
-            {transactionType === TransactionType.PAYMENT ? 'Pay' : 'Request'}
-        </button>
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t max-w-md mx-auto z-20">
+        <div className="p-6">
+          <button 
+              disabled={!amount || isSubmitting}
+              onClick={handleSend}
+              className="w-full bg-blue-500 text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-500/30 disabled:opacity-50 disabled:shadow-none active:scale-95 transition-all text-lg flex items-center justify-center gap-2"
+          >
+              {isSubmitting && <Loader className="w-5 h-5 animate-spin" />}
+              {transactionType === TransactionType.PAYMENT ? 'Pay' : 'Request'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -595,6 +1032,16 @@ const OTCActionModal: React.FC<Props> = ({ onClose, initialType = TransactionTyp
       </div>
     </div>
   );
+};
+
+// 主组件：根据是否配置了 Privy 来选择使用哪个版本
+const OTCActionModal: React.FC<Props> = (props) => {
+  // 根据是否配置了 Privy 来选择使用哪个版本
+  if (hasPrivy) {
+    return <OTCActionModalWithPrivy {...props} />;
+  } else {
+    return <OTCActionModalWithoutPrivy {...props} />;
+  }
 };
 
 export default OTCActionModal;

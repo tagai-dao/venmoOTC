@@ -23,6 +23,9 @@ async function apiRequest<T>(
 
     const url = `${API_BASE_URL}${endpoint}`;
     console.log('🌐 API Request:', url, options.method || 'GET');
+    if (options.body) {
+        console.log('📤 Request body:', options.body);
+    }
     
     try {
         const response = await fetch(url, {
@@ -36,8 +39,16 @@ async function apiRequest<T>(
             let errorMessage = `API error: ${response.statusText}`;
             try {
                 const errorData = await response.json();
-                errorMessage = errorData.error?.message || errorData.message || errorMessage;
+                // 处理不同的错误响应格式
+                if (typeof errorData.error === 'string') {
+                    errorMessage = errorData.error;
+                } else if (errorData.error?.message) {
+                    errorMessage = errorData.error.message;
+                } else if (errorData.message) {
+                    errorMessage = errorData.message;
+                }
                 console.error('❌ API Error:', errorData);
+                console.error('❌ Error message:', errorMessage);
             } catch (e) {
                 const text = await response.text();
                 console.error('❌ API Error (non-JSON):', text);
@@ -63,6 +74,7 @@ export const Services = {
     auth: {
         /**
          * Privy 登录（同步用户到后端）
+         * 这是唯一的登录方式，通过 Privy 钱包登录（支持 Twitter 登录）
          */
         loginWithPrivy: async (privyData: {
             walletAddress: string;
@@ -77,54 +89,15 @@ export const Services = {
             });
             
             // 存储 token 和用户信息
+            // Privy 会自动持久化 session（通过 localStorage），刷新页面后会自动恢复 authenticated 状态
             if (response.token) {
                 localStorage.setItem('auth_token', response.token);
                 localStorage.setItem('current_user', JSON.stringify(response.user));
                 console.log('✅ Privy login successful, token stored');
+                console.log('💾 Session persisted - will be restored on page refresh');
             }
             
             return response;
-        },
-        
-        /**
-         * Twitter OAuth 2.0 授权登录
-         * 重定向到后端授权端点
-         */
-        loginWithTwitter: () => {
-            window.location.href = `${API_BASE_URL}/api/auth/twitter/authorize`;
-        },
-        
-        loginWithX: async (xHandle?: string, xToken?: string, xTokenSecret?: string): Promise<User> => {
-            console.log('🔐 Attempting login with xHandle:', xHandle);
-            try {
-                const response = await apiRequest<{ user: User; token: string }>('/api/auth/login', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        xHandle,
-                        xToken,
-                        xTokenSecret,
-                    }),
-                });
-                
-                // 存储 token 和用户信息供后续请求使用
-                if (response.token) {
-                    localStorage.setItem('auth_token', response.token);
-                    console.log('✅ Login successful, token stored');
-                }
-                
-                if (!response.user) {
-                    throw new Error('服务器返回的用户数据无效');
-                }
-                
-                // 存储用户信息到 localStorage，以便刷新页面后恢复
-                localStorage.setItem('current_user', JSON.stringify(response.user));
-                
-                console.log('✅ Login successful, user:', response.user.handle);
-                return response.user;
-            } catch (error: any) {
-                console.error('❌ Login failed:', error);
-                throw error;
-            }
         },
         logout: async () => {
             try {
@@ -134,8 +107,13 @@ export const Services = {
             } catch (error) {
                 console.error('Logout error:', error);
             } finally {
-                localStorage.removeItem('auth_token');
-                localStorage.removeItem('current_user');
+            // 清除所有认证相关的 localStorage 数据
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('current_user');
+            localStorage.removeItem('privy_user_id');
+            localStorage.removeItem('privy_twitter_username');
+            console.log('✅ Logout successful, all session data cleared');
+            console.log('💾 Twitter 和 Privy 钱包登录状态已清除');
             }
         },
         getCurrentUser: (): User | null => {
@@ -155,7 +133,7 @@ export const Services = {
 
     // --- 2. Blockchain Service ---
     blockchain: {
-        getBalance: async (walletAddress: string, currency: Currency): Promise<number> => {
+        getBalance: async (walletAddress: string, currency: Currency | 'BNB'): Promise<number> => {
             const response = await apiRequest<{ balance: number; currency: string; address: string; timestamp: number }>(
                 `/api/blockchain/balance/${walletAddress}/${currency}`
             );
@@ -252,10 +230,12 @@ export const Services = {
         },
 
         selectTrader: async (transactionId: string, traderId: string): Promise<Transaction> => {
+            console.log(`🔄 Selecting trader: transactionId=${transactionId}, traderId=${traderId}`);
             const response = await apiRequest<{ transaction: Transaction }>(`/api/transactions/${transactionId}/select-trader`, {
                 method: 'POST',
                 body: JSON.stringify({ traderId }),
             });
+            console.log(`✅ Trader selected successfully:`, response.transaction);
             return response.transaction;
         }
     },

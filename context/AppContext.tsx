@@ -47,7 +47,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     [Currency.USDT]: 0,
     [Currency.NGN]: 0,
     [Currency.VES]: 0,
-    [Currency.USD]: 0
+    [Currency.USD]: 0,
+    bnb: 0 // BNB 余额（原生代币）
   });
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -144,54 +145,75 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (isAuthenticated && currentUser) {
           const fetchBalances = async () => {
               try {
-                  const usdt = await Services.blockchain.getBalance(currentUser.walletAddress, Currency.USDT);
-                  const ngn = await Services.blockchain.getBalance(currentUser.walletAddress, Currency.NGN);
-                  setWalletBalance(prev => ({ ...prev, [Currency.USDT]: usdt, [Currency.NGN]: ngn }));
+                  console.log('💰 开始获取余额...', currentUser.walletAddress);
+                  
+                  // 并行获取所有余额
+                  const [usdt, ngn, bnb] = await Promise.all([
+                      Services.blockchain.getBalance(currentUser.walletAddress, Currency.USDT).catch(err => {
+                          console.error('获取 USDT 余额失败:', err);
+                          return 0;
+                      }),
+                      Services.blockchain.getBalance(currentUser.walletAddress, Currency.NGN).catch(err => {
+                          console.error('获取 NGN 余额失败:', err);
+                          return 0;
+                      }),
+                      Services.blockchain.getBalance(currentUser.walletAddress, 'BNB' as any).catch(err => {
+                          console.error('获取 BNB 余额失败:', err);
+                          return 0;
+                      })
+                  ]);
+                  
+                  console.log('✅ 余额获取完成:', { usdt, ngn, bnb });
+                  
+                  setWalletBalance(prev => ({ 
+                      ...prev, 
+                      [Currency.USDT]: usdt, 
+                      [Currency.NGN]: ngn,
+                      bnb: bnb
+                  }));
               } catch (error) {
                   console.error('Failed to fetch balances:', error);
               }
           };
+          
+          // 立即获取一次
           fetchBalances();
           refreshNotifications();
           
-          // 定期刷新通知（每30秒）
-          const interval = setInterval(() => {
-            refreshNotifications();
+          // 定期刷新余额和通知（每30秒）
+          const balanceInterval = setInterval(() => {
+              fetchBalances();
           }, 30000);
           
-          return () => clearInterval(interval);
+          const notificationInterval = setInterval(() => {
+              refreshNotifications();
+          }, 30000);
+          
+          return () => {
+              clearInterval(balanceInterval);
+              clearInterval(notificationInterval);
+          };
       } else {
         setNotifications([]);
         setUnreadCount(0);
       }
   }, [isAuthenticated, currentUser?.walletAddress]);
 
-  const login = async (xHandle?: string) => {
+  const login = async () => {
       try {
-          // 如果是从 OAuth 回调，从 localStorage 读取用户信息
-          if (!xHandle) {
-              const userStr = localStorage.getItem('current_user');
-              const token = localStorage.getItem('auth_token');
-              
-              if (userStr && token) {
-                  const user = JSON.parse(userStr);
-                  setCurrentUser(user);
-                  setIsAuthenticated(true);
-                  // 登录后刷新 feed 和通知
-                  await Promise.all([refreshFeed(), refreshNotifications()]);
-                  return;
-              } else {
-                  throw new Error('No user data found in localStorage');
-              }
-          }
+          // 从 localStorage 读取 Privy 登录后的用户信息
+          const userStr = localStorage.getItem('current_user');
+          const token = localStorage.getItem('auth_token');
           
-          // 通过 handle 登录（测试模式）
-          const user = await Services.auth.loginWithX(xHandle);
-          setCurrentUser(user);
-          setIsAuthenticated(true);
-          // 用户信息已在 Services.auth.loginWithX 中保存到 localStorage
-          // 登录后刷新 feed 和通知
-          await Promise.all([refreshFeed(), refreshNotifications()]);
+          if (userStr && token) {
+              const user = JSON.parse(userStr);
+              setCurrentUser(user);
+              setIsAuthenticated(true);
+              // 登录后刷新 feed 和通知
+              await Promise.all([refreshFeed(), refreshNotifications()]);
+          } else {
+              throw new Error('No user data found in localStorage. Please login with Privy first.');
+          }
       } catch (error) {
           console.error('Login failed:', error);
           throw error;
@@ -219,9 +241,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         throw new Error('不能给自己转账，请选择其他收款人');
       }
 
-      // 创建交易（后端会自动处理 Twitter 发布，如果隐私设置为 PUBLIC_X）
+      // 1. If it's Public on X, Post to X first
+      let xPostId: string | undefined;
+      if (t.privacy === Privacy.PUBLIC_X && t.type === TransactionType.REQUEST) {
+          const tweetContent = `Requesting ${t.isOTC ? `${t.amount} ${t.currency} for ${t.otcOfferAmount} ${t.otcFiatCurrency}` : `${t.amount} ${t.currency}`} on VenmoOTC! #DeFi #OTC`;
+          xPostId = await Services.social.postTweet(tweetContent);
+      }
+
+      // 2. Create transaction via API
       const newTransaction = await Services.transactions.createTransaction({
         ...t,
+        xPostId,
       });
 
       // 3. Update local state

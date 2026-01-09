@@ -18,61 +18,6 @@ const AppContent: React.FC = () => {
   const [payInitialType, setPayInitialType] = useState<TransactionType>(TransactionType.REQUEST);
   const { isAuthenticated, currentUser, friends, login } = useApp();
 
-  // 处理 Twitter OAuth 回调
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    const userStr = urlParams.get('user');
-    const error = urlParams.get('error');
-
-    console.log('🔍 Checking OAuth callback:', { hasToken: !!token, hasUser: !!userStr, hasError: !!error });
-
-    if (error) {
-      console.error('OAuth error:', error);
-      const errorMessage = decodeURIComponent(error);
-      alert(`Twitter 登录失败: ${errorMessage}`);
-      // 清理 URL 参数
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return;
-    }
-
-    if (token && userStr) {
-      try {
-        console.log('📥 Received OAuth callback with token and user');
-        // userStr 可能已经被 URL 编码，需要解码
-        let decodedUserStr = userStr;
-        try {
-          decodedUserStr = decodeURIComponent(userStr);
-        } catch (e) {
-          // 如果解码失败，说明可能没有被编码，直接使用
-          console.log('User string not encoded, using as is');
-        }
-        const user = JSON.parse(decodedUserStr);
-        console.log('👤 User from OAuth:', user.handle);
-        
-        // 存储 token 和用户信息
-        localStorage.setItem('auth_token', token);
-        localStorage.setItem('current_user', JSON.stringify(user));
-        
-        console.log('💾 Saved user to localStorage');
-        
-        // 调用 login 函数更新状态（不传参数，从 localStorage 读取）
-        login().then(() => {
-          console.log('✅ Login successful after OAuth');
-          // 清理 URL 参数
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }).catch((err) => {
-          console.error('❌ Login after OAuth failed:', err);
-          alert('登录后初始化失败，请刷新页面');
-        });
-      } catch (e) {
-        console.error('❌ Failed to parse user data from OAuth callback:', e);
-        console.error('User string:', userStr);
-        alert('解析用户数据失败');
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    }
-  }, [login]);
 
   // If not authenticated, force Profile view (which has the login screen)
   if (!isAuthenticated) {
@@ -206,11 +151,14 @@ const AppContent: React.FC = () => {
 const PrivyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || '';
   
-  // 如果没有配置 Privy App ID，直接渲染子组件，不渲染 PrivyProvider
-  if (!privyAppId) {
-    console.warn('⚠️ VITE_PRIVY_APP_ID is not set. Privy login will not work.');
+  // 如果没有配置 Privy App ID 或为空字符串，直接渲染子组件，不渲染 PrivyProvider
+  if (!privyAppId || privyAppId.trim() === '') {
+    console.warn('⚠️ VITE_PRIVY_APP_ID is not set or empty. Privy login will not work.');
+    console.warn('   请确保在项目根目录创建 .env 文件，并设置 VITE_PRIVY_APP_ID=你的_app_id');
     return <>{children}</>;
   }
+  
+  console.log('✅ Privy App ID configured:', privyAppId.substring(0, 10) + '...');
   
   // 只有在有有效 appId 时才渲染 PrivyProvider
   return (
@@ -227,9 +175,13 @@ const PrivyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         },
         // 嵌入钱包配置
         embeddedWallets: {
-          createOnLogin: 'users-without-wallets', // 为没有钱包的用户自动创建
+          createOnLogin: 'all-users', // 为所有用户自动创建钱包（包括 Twitter 登录）
           requireUserPasswordOnCreate: false, // 不需要密码
+          noPromptOnSignature: false, // 需要用户确认签名
         },
+        // Session 配置：确保登录状态持久化
+        // Privy 默认使用 HTTP-only cookies 持久化 session，刷新页面后会自动恢复
+        // Twitter 登录状态也会自动持久化，无需额外配置
         // 支持的链配置（BSC）
         supportedChains: [
           {

@@ -95,11 +95,6 @@ export interface Transaction {
 }
 
 // API 请求/响应类型
-export interface LoginRequest {
-  xToken?: string;
-  xTokenSecret?: string;
-}
-
 export interface LoginResponse {
   user: User;
   token?: string;

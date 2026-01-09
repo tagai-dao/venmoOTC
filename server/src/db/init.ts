@@ -39,6 +39,37 @@ export const initDatabase = async (): Promise<void> => {
           } catch (err: any) {
             // 先检查是否是已知的可忽略错误，避免打印错误信息
             
+            // 处理死锁错误 - 重试机制
+            if (
+              (typeof err.code === 'string' && err.code === 'ER_LOCK_DEADLOCK') ||
+              (typeof err.errno === 'number' && err.errno === 1213) ||
+              (typeof err.code === 'number' && err.code === 1213)
+            ) {
+              console.warn('⚠️ Deadlock detected, retrying statement after delay...');
+              // 等待一小段时间后重试（最多重试 3 次）
+              let retries = 3;
+              let success = false;
+              while (retries > 0 && !success) {
+                await new Promise(resolve => setTimeout(resolve, 500)); // 等待 500ms
+                try {
+                  await connection.execute(statement);
+                  success = true;
+                  console.log('✅ Statement executed successfully after retry');
+                } catch (retryErr: any) {
+                  retries--;
+                  if (retries === 0) {
+                    // 如果是创建索引的死锁，尝试使用 IF NOT EXISTS 或直接跳过
+                    if (/^CREATE\s+INDEX/i.test(statement)) {
+                      console.warn('⚠️ Index creation deadlock persisted, skipping (index may already exist)');
+                      continue;
+                    }
+                    throw retryErr;
+                  }
+                }
+              }
+              continue;
+            }
+            
             // 如果索引已存在（ER_DUP_KEYNAME），跳过（允许重复执行迁移）
             if (
               (typeof err.code === 'string' && err.code === 'ER_DUP_KEYNAME') ||
@@ -113,6 +144,31 @@ export const initDatabase = async (): Promise<void> => {
               console.log('📜 Executing additional migration statement:\n', statement);
               await connection.execute(statement);
             } catch (err: any) {
+              // 处理死锁错误 - 重试机制
+              if (
+                (typeof err.code === 'string' && err.code === 'ER_LOCK_DEADLOCK') ||
+                (typeof err.errno === 'number' && err.errno === 1213) ||
+                (typeof err.code === 'number' && err.code === 1213)
+              ) {
+                console.warn('⚠️ Deadlock detected in additional migration, retrying...');
+                let retries = 3;
+                let success = false;
+                while (retries > 0 && !success) {
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                  try {
+                    await connection.execute(statement);
+                    success = true;
+                    console.log('✅ Additional migration statement executed after retry');
+                  } catch (retryErr: any) {
+                    retries--;
+                    if (retries === 0) {
+                      console.warn('⚠️ Additional migration deadlock persisted, skipping:', err.message);
+                    }
+                  }
+                }
+                continue;
+              }
+              
               // 如果字段已存在，忽略错误（允许重复执行）
               if (err.code === 'ER_DUP_FIELDNAME' || err.code === 1060) {
                 console.log('ℹ️  Field fiat_rejection_count already exists, skipping...');

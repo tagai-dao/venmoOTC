@@ -12,6 +12,8 @@ import notificationRoutes from './routes/notifications.js';
 import socialInteractionRoutes from './routes/socialInteractions.js';
 import bidRoutes from './routes/bids.js';
 import multisigRoutes from './routes/multisig.js';
+import { blockchainService } from './services/blockchainService.js';
+import { balanceSyncService } from './services/balanceSyncService.js';
 
 const app = express();
 
@@ -95,12 +97,42 @@ async function startServer() {
       await seedDatabase();
     }
     
-    // 4. 启动服务器
+    // 4. 初始化区块链服务
+    console.log('⛓️ Initializing blockchain service...');
+    try {
+      // 测试连接
+      const testAddress = '0x0000000000000000000000000000000000000000';
+      await blockchainService.getBNBBalance(testAddress).catch(() => {
+        // 预期会失败，这只是测试连接
+      });
+      console.log('✅ Blockchain service initialized');
+      console.log(`   RPC: ${config.blockchain.bnbChainRpcUrl}`);
+      console.log(`   USDT Contract: ${config.blockchain.usdtContractAddress}`);
+      if (config.blockchain.privateKey) {
+        console.log(`   Wallet: Configured`);
+      } else {
+        console.log(`   ⚠️ Wallet: Not configured (PRIVATE_KEY not set)`);
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Blockchain service initialization warning:', error.message);
+    }
+
+    // 5. 启动余额同步服务（可选，每 5 分钟同步一次）
+    if (config.nodeEnv === 'development') {
+      // 开发环境：每 10 分钟同步一次
+      balanceSyncService.startPeriodicSync(10);
+    } else {
+      // 生产环境：每 5 分钟同步一次
+      balanceSyncService.startPeriodicSync(5);
+    }
+
+    // 6. 启动服务器
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📡 Environment: ${config.nodeEnv}`);
       console.log(`🌐 Frontend URL: ${config.frontendUrl}`);
       console.log(`💾 Database: Connected`);
+      console.log(`⛓️ Blockchain: BNB Chain (${config.blockchain.chainId})`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
