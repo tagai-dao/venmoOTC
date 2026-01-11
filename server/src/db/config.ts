@@ -13,20 +13,17 @@ const dbConfig: any = {
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
-  connectTimeout: 10000, // 10 秒连接超时
+  connectTimeout: 30000, // 30 秒连接超时
 };
 
-// 优先使用 socket 连接（macOS Homebrew MySQL 默认使用 socket）
-// 如果指定了 socket 路径，使用 socket；否则尝试使用 TCP
+// 优先使用 TCP 连接（根据记忆，数据库在 localhost:3306）
+// 如果指定了 socket 路径，使用 socket；否则使用 TCP
 if (process.env.DB_SOCKET_PATH) {
   dbConfig.socketPath = process.env.DB_SOCKET_PATH;
-} else if (process.env.DB_HOST && process.env.DB_HOST !== 'localhost') {
-  // 如果明确指定了非 localhost 的主机，使用 TCP
-  dbConfig.host = process.env.DB_HOST;
-  dbConfig.port = parseInt(process.env.DB_PORT || '3306');
 } else {
-  // 默认尝试使用 socket（macOS 常见路径）
-  dbConfig.socketPath = '/tmp/mysql.sock';
+  // 默认使用 TCP 连接
+  dbConfig.host = process.env.DB_HOST || 'localhost';
+  dbConfig.port = parseInt(process.env.DB_PORT || '3306');
 }
 
 export const pool = mysql.createPool(dbConfig);

@@ -1,2 +1,5 @@
-/* 基础样式 - 如果需要可以添加自定义样式 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
+/* 基础样式 - 如果需要可以添加自定义样式 */

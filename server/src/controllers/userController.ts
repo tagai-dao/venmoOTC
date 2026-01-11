@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AuthRequest } from '../middleware/auth.js';
 import { UserRepository } from '../db/repositories/userRepository.js';
 
 /**
@@ -17,6 +18,39 @@ export const getUsers = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get users error:', error);
     res.status(500).json({ error: error.message || 'Failed to get users' });
+  }
+};
+
+/**
+ * 获取当前用户信息（需要认证）
+ */
+export const getCurrentUser = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    const user = await UserRepository.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // 检查是否有 Twitter accessToken（不返回 token 本身，只返回状态）
+    const { UserRepository: UR } = await import('../db/repositories/userRepository.js');
+    const hasTwitterToken = !!(await UR.getTwitterAccessToken(userId));
+    
+    res.json({ 
+      user,
+      twitterAuth: {
+        hasAccessToken: hasTwitterToken,
+      }
+    });
+  } catch (error: any) {
+    console.error('Get current user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get current user' });
   }
 };
 

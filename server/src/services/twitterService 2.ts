@@ -14,35 +14,22 @@ export class TwitterService {
    */
   static async postTweet(content: string, accessToken?: string): Promise<{ tweetId: string; url: string }> {
     try {
-      // Twitter API v2 的 /tweets 端点不支持 OAuth 2.0 Application-Only (Bearer Token)
-      // 只支持 OAuth 1.0a User Context 或 OAuth 2.0 User Context
-      // 因此必须使用用户的 accessToken，不能使用应用的 Bearer Token
-      if (!accessToken) {
-        throw new Error('User Twitter accessToken is required. Bearer Token cannot be used to post tweets. Please authorize Twitter API access.');
+      // 检查配置
+      if (!config.xApi.bearerToken && !accessToken) {
+        throw new Error('Twitter API not configured. Please set X_BEARER_TOKEN or provide accessToken');
       }
-
-      console.log('🐦 Preparing to post tweet to Twitter API v2...');
-      console.log('📝 Tweet content:', content);
-      console.log('📝 Tweet content length:', content.length);
-      console.log('🔑 AccessToken details:', {
-        hasToken: !!accessToken,
-        tokenLength: accessToken.length,
-        tokenPreview: accessToken.substring(0, 30) + '...',
-        tokenEndsWith: accessToken.substring(accessToken.length - 10),
-      });
 
       // 构建请求头
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`, // 使用用户的 OAuth 2.0 accessToken
       };
 
-      console.log('🌐 Twitter API request:', {
-        url: `${config.xApi.apiBase}/tweets`,
-        method: 'POST',
-        hasAuthHeader: !!headers['Authorization'],
-        authHeaderPreview: headers['Authorization'].substring(0, 40) + '...',
-      });
+      // 使用 Bearer Token 或用户 Access Token
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      } else if (config.xApi.bearerToken) {
+        headers['Authorization'] = `Bearer ${config.xApi.bearerToken}`;
+      }
 
       // 调用 Twitter API v2 发布推文
       const response = await axios.post(
@@ -54,12 +41,6 @@ export class TwitterService {
           headers,
         }
       );
-      
-      console.log('📥 Twitter API response:', {
-        status: response.status,
-        hasData: !!response.data,
-        tweetId: response.data?.data?.id,
-      });
 
       const tweetId = response.data.data.id;
       // Twitter API v2 可能不直接返回用户名，需要从用户信息中获取
@@ -74,46 +55,14 @@ export class TwitterService {
       };
     } catch (error: any) {
       console.error('❌ Twitter API error:', error.response?.data || error.message);
-      console.error('Error code:', error.code);
-      console.error('Error stack:', error.stack);
-      
-      // 处理网络连接错误
-      if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
-        throw new Error(`Twitter API 连接错误: ${error.message}。请检查网络连接或稍后重试。`);
-      }
       
       // 如果是配置错误，返回更友好的错误信息
       if (error.response?.status === 401) {
-        const errorDetail = error.response?.data || {};
-        console.error('❌ Twitter API 401 Unauthorized:', {
-          title: errorDetail.title,
-          detail: errorDetail.detail,
-          type: errorDetail.type,
-        });
-        throw new Error('Twitter API authentication failed. The accessToken may be invalid or expired. Please re-authorize Twitter API access.');
+        throw new Error('Twitter API authentication failed. Please check your Bearer Token or Access Token.');
       } else if (error.response?.status === 403) {
-        // 403 错误通常表示认证方式不支持或权限不足
-        const errorDetail = error.response?.data || {};
-        const detail = errorDetail.detail || '';
-        console.error('❌ Twitter API 403 Forbidden:', {
-          title: errorDetail.title,
-          detail: detail,
-          type: errorDetail.type,
-        });
-        
-        if (detail.includes('OAuth 2.0 Application-Only')) {
-          throw new Error('Bearer Token cannot be used to post tweets. User accessToken is required. Please authorize Twitter API access.');
-        }
-        if (detail.includes('OAuth 1.0a User Context') || detail.includes('OAuth 2.0 User Context')) {
-          throw new Error('Twitter API access forbidden. The accessToken may not have the required permissions (tweet.write scope). Please re-authorize with correct permissions.');
-        }
-        throw new Error(`Twitter API access forbidden: ${detail || 'Please check your API permissions and ensure the accessToken has tweet.write scope.'}`);
+        throw new Error('Twitter API access forbidden. Please check your API permissions.');
       } else if (error.response?.status === 429) {
         throw new Error('Twitter API rate limit exceeded. Please try again later.');
-      } else if (error.response?.status) {
-        const errorDetail = error.response?.data || {};
-        console.error(`❌ Twitter API ${error.response.status} error:`, errorDetail);
-        throw new Error(`Twitter API 错误 (${error.response.status}): ${errorDetail.detail || errorDetail.title || error.message}`);
       }
       
       throw new Error(`Failed to post tweet: ${error.response?.data?.detail || error.message}`);
@@ -133,17 +82,22 @@ export class TwitterService {
     accessToken?: string
   ): Promise<{ replyId: string; url: string }> {
     try {
-      // Twitter API v2 的 /tweets 端点不支持 OAuth 2.0 Application-Only (Bearer Token)
-      // 必须使用用户的 accessToken
-      if (!accessToken) {
-        throw new Error('User Twitter accessToken is required. Bearer Token cannot be used to reply to tweets. Please authorize Twitter API access.');
+      // 检查配置
+      if (!config.xApi.bearerToken && !accessToken) {
+        throw new Error('Twitter API not configured. Please set X_BEARER_TOKEN or provide accessToken');
       }
 
       // 构建请求头
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`, // 使用用户的 OAuth 2.0 accessToken
       };
+
+      // 使用 Bearer Token 或用户 Access Token
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      } else if (config.xApi.bearerToken) {
+        headers['Authorization'] = `Bearer ${config.xApi.bearerToken}`;
+      }
 
       // 调用 Twitter API v2 回复推文
       const response = await axios.post(

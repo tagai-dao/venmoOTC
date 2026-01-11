@@ -234,27 +234,51 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
   };
 
-  const addTransaction = async (t: Omit<Transaction, 'id' | 'timestamp'>) => {
+  const addTransaction = async (t: Omit<Transaction, 'id' | 'timestamp'> & { tweetContent?: string }) => {
     try {
       // 验证：支付时不能给自己转账
       if (t.type === TransactionType.PAYMENT && t.toUser && t.fromUser.id === t.toUser.id) {
         throw new Error('不能给自己转账，请选择其他收款人');
       }
 
-      // 1. If it's Public on X, Post to X first
-      let xPostId: string | undefined;
-      if (t.privacy === Privacy.PUBLIC_X && t.type === TransactionType.REQUEST) {
-          const tweetContent = `Requesting ${t.isOTC ? `${t.amount} ${t.currency} for ${t.otcOfferAmount} ${t.otcFiatCurrency}` : `${t.amount} ${t.currency}`} on VenmoOTC! #DeFi #OTC`;
-          xPostId = await Services.social.postTweet(tweetContent);
-      }
+      // 1. 提取推文内容（如果提供）
+      const { tweetContent, ...transactionData } = t;
+      
+      // 注意：推文由后端发布，前端不再调用 postTweet API
+      // 如果用户提供了推文内容，将随交易一起发送到后端
+      // 后端会使用用户的 Twitter accessToken 发布推文
 
-      // 2. Create transaction via API
-      const newTransaction = await Services.transactions.createTransaction({
-        ...t,
-        xPostId,
+      // 2. Create transaction via API（后端会处理推文发布）
+      const result = await Services.transactions.createTransaction({
+        ...transactionData,
+        tweetContent: tweetContent || undefined, // 将推文内容发送到后端
       });
 
-      // 3. Update local state
+      const newTransaction = result.transaction;
+      const twitterAuthStatus = result.twitterAuthStatus;
+
+      // 3. 如果后端返回需要重新授权 Twitter，触发重新授权流程
+      if (twitterAuthStatus?.needsReauth) {
+        console.warn('⚠️ Twitter API 需要重新授权:', twitterAuthStatus.reason, twitterAuthStatus.error);
+        
+        // 清除前端的 Twitter 授权状态
+        // 触发事件，让 Profile 页面知道需要重新授权
+        window.dispatchEvent(new CustomEvent('twitter-auth-required', {
+          detail: {
+            reason: twitterAuthStatus.reason,
+            error: twitterAuthStatus.error,
+          }
+        }));
+        
+        // 显示提示信息
+        const reasonText = twitterAuthStatus.reason === 'no_access_token' 
+          ? '未授权 Twitter API 访问' 
+          : 'Twitter accessToken 已过期或无效';
+        
+        alert(`⚠️ ${reasonText}\n\n交易已创建，但推文未发布。\n\n请前往 Profile 页面，点击"授权 Twitter API 访问"按钮重新授权。`);
+      }
+
+      // 4. Update local state
       setFeed((prev) => [newTransaction, ...prev]);
       
       // 4. If it's a direct payment, update balance (Request logic handled in update)

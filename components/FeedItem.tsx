@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Transaction, TransactionType, OTCState, Currency, formatCurrency, timeAgo, Privacy, User, generateId } from '../utils';
 import { useApp } from '../context/AppContext';
 import { Services } from '../services';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { sendUSDTWithPrivy } from '../services/privyBlockchainService';
+import { ethers } from 'ethers';
 import { Heart, MessageCircle, Check, DollarSign, Upload, Shield, Globe, Lock, Users, Banknote, Loader, Twitter, Copy, Send, ExternalLink, X, UserCheck, Hand } from 'lucide-react';
 import ReplyDetailModal from './ReplyDetailModal';
 import BidListModal from './BidListModal';
@@ -13,6 +16,31 @@ interface FeedItemProps {
 
 const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   const { currentUser, updateTransaction, refreshFeed, walletBalance, setWalletBalance } = useApp();
+  
+  // Privy hooks（如果可用）
+  let privyReady = false;
+  let privyAuthenticated = false;
+  let getEthersProvider: (() => Promise<any>) | undefined = undefined;
+  let wallets: any[] = [];
+  
+  try {
+    const privy = usePrivy();
+    const walletsHook = useWallets();
+    privyReady = privy.ready;
+    privyAuthenticated = privy.authenticated;
+    getEthersProvider = privy.getEthersProvider;
+    wallets = walletsHook.wallets || [];
+  } catch (error) {
+    // Privy 不可用，使用默认值
+    console.log('Privy not available in FeedItem');
+  }
+  
+  const privyStateRef = useRef({ ready: privyReady, authenticated: privyAuthenticated, getEthersProvider, wallets });
+  
+  useEffect(() => {
+    privyStateRef.current = { ready: privyReady, authenticated: privyAuthenticated, getEthersProvider, wallets };
+  }, [privyReady, privyAuthenticated, getEthersProvider, wallets]);
+  
   const [showBankDetails, setShowBankDetails] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -94,10 +122,65 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
         usdtAmount
       );
       
-      // 5. 发送 USDT 到多签合约
-      await Services.multisig.sendUSDTToMultisig(transaction.id);
+      console.log('✅ 多签合约已创建:', multisig.contractAddress);
       
-      // 6. 更新钱包余额（从发布者的钱包中扣除 USDT）
+      // 5. 使用 Privy 钱包发送真实的 USDT 到多签合约地址
+      const currentState = privyStateRef.current;
+      
+      if (!currentState.ready || !currentState.authenticated) {
+        throw new Error('钱包未连接。请先连接 Privy 钱包。');
+      }
+      
+      // 获取 provider
+      let provider: any = null;
+      
+      // 方法1: 尝试使用 getEthersProvider
+      if (currentState.getEthersProvider && typeof currentState.getEthersProvider === 'function') {
+        try {
+          provider = await currentState.getEthersProvider();
+          if (provider) {
+            console.log('✅ 使用 getEthersProvider 获取 provider');
+          }
+        } catch (err) {
+          console.warn('⚠️ getEthersProvider 失败，尝试备用方法...', err);
+        }
+      }
+      
+      // 方法2: 如果 getEthersProvider 不可用，使用 wallets 获取 provider
+      if (!provider && currentState.wallets && currentState.wallets.length > 0) {
+        const embeddedWallet = currentState.wallets.find((w: any) => w.walletClientType === 'privy') || currentState.wallets[0];
+        if (embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function') {
+          try {
+            const ethereumProvider = await embeddedWallet.getEthereumProvider();
+            if (ethereumProvider) {
+              provider = new ethers.BrowserProvider(ethereumProvider);
+              console.log('✅ 使用 wallets.getEthereumProvider 获取 provider');
+            }
+          } catch (err: any) {
+            console.error('❌ 从 wallets 获取 provider 失败:', err);
+          }
+        }
+      }
+      
+      if (!provider) {
+        throw new Error('无法获取钱包连接。请确保钱包已连接并已创建嵌入钱包。');
+      }
+      
+      // 使用 Privy 发送 USDT 到多签合约地址
+      console.log(`📤 准备发送 ${usdtAmount} USDT 到多签合约地址: ${multisig.contractAddress}`);
+      const txHash = await sendUSDTWithPrivy(provider, multisig.contractAddress, usdtAmount);
+      
+      console.log('✅ USDT 已发送到多签合约！交易哈希:', txHash);
+      
+      // 6. 通知后端 USDT 已发送（更新状态）
+      // 注意：这里不需要调用 sendUSDTToMultisig，因为我们已经用 Privy 发送了真实的 USDT
+      // 但我们需要更新后端状态，表示 USDT 已在多签合约中
+      await Services.transactions.updateTransaction(transaction.id, {
+        usdtInEscrow: true,
+        otcState: OTCState.AWAITING_FIAT_PAYMENT,
+      });
+      
+      // 7. 更新钱包余额（从发布者的钱包中扣除 USDT）
       if (currentUser && currentUser.id === transaction.fromUser.id) {
         setWalletBalance(prev => ({
           ...prev,
@@ -105,10 +188,10 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
         }));
       }
       
-      // 7. 刷新 feed 以更新状态
+      // 8. 刷新 feed 以更新状态
       await refreshFeed();
       
-      alert('✅ 已选择交易者，USDT 已发送到多签合约！');
+      alert(`✅ 已选择交易者，USDT 已发送到多签合约！\n\n交易哈希: ${txHash}\n多签合约地址: ${multisig.contractAddress}`);
     } catch (error: any) {
       console.error('选择交易者失败:', error);
       alert(error?.message || '选择交易者失败，请重试');

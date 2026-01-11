@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets, useOAuthTokens, useLoginWithOAuth } from '@privy-io/react-auth';
 import { useApp } from '../context/AppContext';
-import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, ArrowUpRight, ArrowDownLeft, Globe, Loader } from 'lucide-react';
+import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, ArrowUpRight, ArrowDownLeft, Globe, Loader, PenTool } from 'lucide-react';
 import { Currency, formatCurrency, Privacy, TransactionType, OTCState } from '../utils';
 import QRCode from 'react-qr-code';
 import FeedItem from '../components/FeedItem';
+import SignatureTestModal from '../components/SignatureTestModal';
 import { Services } from '../services';
 import { getAllPrices, getBNBPriceInUSDT, getFiatRates } from '../services/priceService';
 
@@ -26,6 +27,157 @@ const ProfileWithPrivy: React.FC<{
   // 获取钱包列表（用于检查钱包是否已创建）
   const { wallets } = useWallets();
   
+  // 用于启动 Twitter OAuth 授权流程
+  const { initOAuth } = useLoginWithOAuth();
+  
+  // 用于存储 Twitter accessToken 状态
+  const [twitterAccessTokenStatus, setTwitterAccessTokenStatus] = useState<'unknown' | 'checking' | 'granted' | 'not_granted'>('unknown');
+  
+  // 用于存储获取到的 accessToken（在 OAuth 授权完成后）
+  const [pendingTwitterAccessToken, setPendingTwitterAccessToken] = useState<string | null>(null);
+  
+  // 监听 Twitter 授权要求事件（当后端检测到需要重新授权时触发）
+  useEffect(() => {
+    const handleTwitterAuthRequired = (event: CustomEvent) => {
+      console.log('🔔 Twitter 授权要求事件:', event.detail);
+      const { reason, error } = event.detail;
+      
+      // 清除 Twitter 授权状态
+      setTwitterAccessTokenStatus('not_granted');
+      setPendingTwitterAccessToken(null);
+      
+      // 清除后端存储的无效 accessToken（通过调用 API）
+      const clearInvalidToken = async () => {
+        try {
+          const savedUser = Services.auth.getCurrentUser();
+          if (savedUser && savedUser.walletAddress) {
+            // 通过更新用户信息来清除 accessToken（传递 null）
+            await Services.auth.loginWithPrivy({
+              walletAddress: savedUser.walletAddress,
+              handle: savedUser.handle,
+              name: savedUser.name,
+              avatar: savedUser.avatar,
+              privyUserId: localStorage.getItem('privy_user_id') || '',
+              twitterAccessToken: '', // 传递空字符串来清除
+            });
+            console.log('✅ Cleared invalid Twitter accessToken');
+          }
+        } catch (error: any) {
+          console.error('❌ Failed to clear invalid accessToken:', error.message);
+        }
+      };
+      
+      clearInvalidToken();
+      
+      // 显示提示信息
+      const reasonText = reason === 'no_access_token' 
+        ? '未授权 Twitter API 访问' 
+        : 'Twitter accessToken 已过期或无效';
+      
+      alert(`⚠️ ${reasonText}\n\n${error || ''}\n\n请点击下方的"授权 Twitter API 访问"按钮重新授权。`);
+    };
+    
+    window.addEventListener('twitter-auth-required', handleTwitterAuthRequired as EventListener);
+    
+    return () => {
+      window.removeEventListener('twitter-auth-required', handleTwitterAuthRequired as EventListener);
+    };
+  }, []);
+  
+  // 获取 OAuth tokens（用于获取 Twitter accessToken）
+  // 这个回调会在用户通过 Twitter OAuth 登录或授权时触发
+  useOAuthTokens({
+    onOAuthTokenGrant: async ({ provider, accessToken, refreshToken }) => {
+      console.log('🔔 OAuth token granted callback triggered:', { provider, hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken });
+      
+      if (provider === 'twitter' && accessToken) {
+        console.log('✅ Twitter OAuth token granted via Privy');
+        console.log('🔑 AccessToken (first 30 chars):', accessToken.substring(0, 30) + '...');
+        console.log('🔑 AccessToken length:', accessToken.length);
+        console.log('💾 Received Twitter accessToken, will store to backend...');
+        
+        // 保存 accessToken，等待用户同步到后端时使用
+        setPendingTwitterAccessToken(accessToken);
+        setTwitterAccessTokenStatus('granted');
+        
+        // 如果用户已经登录，立即发送到后端存储
+        // 如果用户还未登录，accessToken 会在 syncPrivyUser 中使用
+        try {
+          const savedUser = Services.auth.getCurrentUser();
+          const privyUserId = localStorage.getItem('privy_user_id');
+          
+          console.log('📋 Current user state:', {
+            hasSavedUser: !!savedUser,
+            hasWalletAddress: !!savedUser?.walletAddress,
+            hasPrivyUserId: !!privyUserId,
+            walletAddress: savedUser?.walletAddress,
+            privyUserId: privyUserId,
+          });
+          
+          if (savedUser && savedUser.walletAddress && privyUserId) {
+            console.log('📤 Sending Twitter accessToken to backend...');
+            console.log('📤 Request payload:', {
+              walletAddress: savedUser.walletAddress,
+              handle: savedUser.handle,
+              name: savedUser.name,
+              hasAvatar: !!savedUser.avatar,
+              privyUserId: privyUserId,
+              hasAccessToken: !!accessToken,
+              accessTokenLength: accessToken.length,
+            });
+            
+            // 立即更新用户的 Twitter accessToken
+            const response = await Services.auth.loginWithPrivy({
+              walletAddress: savedUser.walletAddress,
+              handle: savedUser.handle,
+              name: savedUser.name,
+              avatar: savedUser.avatar,
+              privyUserId: privyUserId,
+              twitterAccessToken: accessToken,
+            });
+            
+            console.log('✅ Twitter accessToken stored to backend successfully');
+            console.log('✅ Backend response:', { userId: response.user.id, handle: response.user.handle });
+            setPendingTwitterAccessToken(null); // 清除待处理的 token
+            
+            // 验证 accessToken 是否已存储（可选，通过查询后端）
+            console.log('🔍 Verifying accessToken storage...');
+          } else {
+            console.log('ℹ️ User not yet synced, accessToken will be stored during sync');
+            console.log('⚠️ Missing:', {
+              savedUser: !savedUser,
+              walletAddress: !savedUser?.walletAddress,
+              privyUserId: !privyUserId,
+            });
+          }
+        } catch (error: any) {
+          console.error('❌ Failed to store Twitter accessToken to backend:', error.message);
+          console.error('❌ Error details:', error);
+          console.error('❌ Error stack:', error.stack);
+          setTwitterAccessTokenStatus('not_granted');
+          alert(`存储 Twitter accessToken 失败: ${error?.message || '未知错误'}\n\n请检查控制台日志获取详细信息。`);
+          // 不清除 pendingTwitterAccessToken，让它在下次同步时重试
+        }
+      } else {
+        console.log('ℹ️ OAuth token granted but not for Twitter or no accessToken:', { provider, hasAccessToken: !!accessToken });
+      }
+    },
+  });
+  
+  // 手动授权 Twitter API 访问
+  const handleAuthorizeTwitter = async () => {
+    try {
+      console.log('🔐 Starting Twitter OAuth authorization...');
+      setTwitterAccessTokenStatus('checking');
+      await initOAuth({ provider: 'twitter' });
+      // 注意：授权流程是异步的，onOAuthTokenGrant 回调会在授权完成后触发
+    } catch (error: any) {
+      console.error('❌ Failed to authorize Twitter:', error.message);
+      setTwitterAccessTokenStatus('not_granted');
+      alert(`Twitter 授权失败: ${error?.message || '未知错误'}`);
+    }
+  };
+  
   return (
     <ProfileContent
       currentUser={currentUser}
@@ -40,6 +192,9 @@ const ProfileWithPrivy: React.FC<{
       privyLogin={privyLogin}
       privyLogout={privyLogout}
       wallets={wallets}
+      onAuthorizeTwitter={handleAuthorizeTwitter}
+      twitterAccessTokenStatus={twitterAccessTokenStatus}
+      pendingTwitterAccessToken={pendingTwitterAccessToken}
     />
   );
 };
@@ -67,6 +222,9 @@ const ProfileWithoutPrivy: React.FC<{
       privyLogin={async () => {}}
       privyLogout={async () => {}}
       wallets={[]}
+      onAuthorizeTwitter={undefined}
+      twitterAccessTokenStatus="unknown"
+      pendingTwitterAccessToken={null}
     />
   );
 };
@@ -85,8 +243,12 @@ const ProfileContent: React.FC<{
   privyLogin: () => Promise<void>;
   privyLogout: () => Promise<void>;
   wallets?: any[];
-}> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed, ready, authenticated, privyUser, privyLogin, privyLogout, wallets = [] }) => {
+  onAuthorizeTwitter?: () => Promise<void>;
+  twitterAccessTokenStatus?: 'unknown' | 'checking' | 'granted' | 'not_granted';
+  pendingTwitterAccessToken?: string | null;
+}> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed, ready, authenticated, privyUser, privyLogin, privyLogout, wallets = [], onAuthorizeTwitter, twitterAccessTokenStatus = 'unknown', pendingTwitterAccessToken = null }) => {
   const [showMyQR, setShowMyQR] = useState(false);
+  const [showSignatureTest, setShowSignatureTest] = useState(false);
   const [activeTab, setActiveTab] = useState<'activity' | 'requests'>('activity');
   const [isPrivySyncing, setIsPrivySyncing] = useState(false);
   const [bnbToUSDTRate, setBnbToUSDTRate] = useState<number>(300); // 默认值
@@ -222,13 +384,29 @@ const ProfileContent: React.FC<{
         
         console.log('📝 User info:', { handle, name, walletAddress });
         
-        // 调用后端 API 同步用户
+        // 如果有待处理的 Twitter accessToken（从 OAuth 授权获取的），一并发送
+        // 如果没有，尝试从 Privy 获取（如果用户是通过 Twitter 登录的）
+        let twitterAccessToken: string | undefined = undefined;
+        
+        if (pendingTwitterAccessToken) {
+          // 使用 OAuth 授权流程中获取的 accessToken
+          console.log('📝 Using pending Twitter accessToken from OAuth grant');
+          twitterAccessToken = pendingTwitterAccessToken;
+        } else if (twitterAccount) {
+          // 注意：Privy 的 user 对象可能不包含 accessToken，只有在 OAuth 授权时才能获取
+          // 这里尝试从 localStorage 或其他地方获取，但主要依赖 useOAuthTokens 回调
+          console.log('ℹ️ Twitter account found, but accessToken not available yet');
+          console.log('💡 If user logged in via Twitter, accessToken should be obtained via useOAuthTokens callback');
+        }
+        
+        // 调用后端 API 同步用户（如果提供了 accessToken，会一并存储）
         const response = await Services.auth.loginWithPrivy({
           walletAddress,
           handle,
           name,
           avatar,
           privyUserId: privyUser.id,
+          ...(twitterAccessToken && { twitterAccessToken }),
         });
         
         console.log('✅ Privy user synced:', response.user.handle);
@@ -254,7 +432,11 @@ const ProfileContent: React.FC<{
     };
     
     syncPrivyUser();
-  }, [ready, authenticated, privyUser, isAuthenticated, currentUser, login, wallets]);
+    // 注意：pendingTwitterAccessToken 不在依赖项中，因为：
+    // 1. 如果用户已登录，accessToken 会在 onOAuthTokenGrant 回调中立即发送到后端
+    // 2. 如果用户未登录，syncPrivyUser 会在用户登录后触发，此时 pendingTwitterAccessToken 已设置
+    // 3. 添加 pendingTwitterAccessToken 到依赖项可能会导致循环更新
+  }, [ready, authenticated, privyUser, isAuthenticated, currentUser, login, wallets, pendingTwitterAccessToken]);
 
   const handlePrivyLogin = async () => {
     if (!ready) {
@@ -419,10 +601,19 @@ const ProfileContent: React.FC<{
                   </div>
               </div>
               <div className="flex gap-2">
-                 <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                 <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title="显示二维码">
                      <QrCode className="w-6 h-6" />
                  </button>
-                 <button onClick={handlePrivyLogout} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                 {ready && authenticated && (
+                   <button 
+                     onClick={() => setShowSignatureTest(true)} 
+                     className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" 
+                     title="测试钱包签名"
+                   >
+                     <PenTool className="w-6 h-6" />
+                 </button>
+                 )}
+                 <button onClick={handlePrivyLogout} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title="设置">
                      <Settings className="w-6 h-6" />
                  </button>
               </div>
@@ -523,6 +714,122 @@ const ProfileContent: React.FC<{
                </div>
            </div>
        </div>
+
+       {/* Twitter API Authorization Section */}
+       {ready && authenticated && (
+         <div className="p-4 pb-0">
+           <div className={`p-4 rounded-xl border ${
+             twitterAccessTokenStatus === 'granted' 
+               ? 'bg-green-50 border-green-200' 
+               : twitterAccessTokenStatus === 'not_granted' || twitterAccessTokenStatus === 'unknown'
+               ? 'bg-amber-50 border-amber-200'
+               : 'bg-blue-50 border-blue-200'
+           }`}>
+               <div className="flex items-center justify-between mb-3">
+                   <div className="flex items-center gap-2">
+                       <Twitter className={`w-5 h-5 ${
+                         twitterAccessTokenStatus === 'granted' ? 'text-green-600' : 'text-amber-600'
+                       }`} />
+                       <h4 className={`font-bold ${
+                         twitterAccessTokenStatus === 'granted' ? 'text-green-900' : 'text-amber-900'
+                       }`}>
+                         Twitter API 授权状态
+                       </h4>
+                   </div>
+                   {twitterAccessTokenStatus === 'checking' && (
+                     <Loader className="w-4 h-4 animate-spin text-blue-600" />
+                   )}
+               </div>
+               <div className="text-sm mb-3">
+                   {twitterAccessTokenStatus === 'granted' ? (
+                     <p className="text-green-800">
+                       ✅ 已授权 Twitter API 访问。后端可以使用您的 Twitter 账号发布推文。
+                     </p>
+                   ) : twitterAccessTokenStatus === 'checking' ? (
+                     <p className="text-blue-800">
+                       ⏳ 正在检查授权状态...
+                     </p>
+                   ) : (
+                     <div className="space-y-2">
+                       <p className="text-amber-800">
+                         ⚠️ 未授权 Twitter API 访问。要发布推文到 X，您需要：
+                       </p>
+                       <ol className="list-decimal list-inside text-amber-800 space-y-1 ml-2">
+                         <li>点击下方按钮授权 Twitter API 访问，或</li>
+                         <li>配置 X_BEARER_TOKEN 环境变量（供管理员配置）</li>
+                       </ol>
+                     </div>
+                   )}
+               </div>
+               {twitterAccessTokenStatus !== 'granted' && (
+                 <div className="space-y-2">
+                   <button
+                     onClick={onAuthorizeTwitter}
+                     disabled={twitterAccessTokenStatus === 'checking' || !ready || !authenticated}
+                     className={`w-full px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+                       twitterAccessTokenStatus === 'checking' || !ready || !authenticated
+                         ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                         : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+                     }`}
+                   >
+                     {twitterAccessTokenStatus === 'checking' ? '授权中...' : '授权 Twitter API 访问'}
+                   </button>
+                   
+                   {/* 调试信息（开发环境） */}
+                   {process.env.NODE_ENV === 'development' && (
+                     <div className="text-xs text-gray-500 space-y-1">
+                       <p>💡 提示：确保在 Privy Dashboard 中：</p>
+                       <ol className="list-decimal list-inside ml-2 space-y-0.5">
+                         <li>Settings → Login Methods → Twitter</li>
+                         <li>启用 "Return OAuth tokens"</li>
+                         <li>确保 Scopes 包含 tweet.write 和 offline.access</li>
+                       </ol>
+                       <button
+                         onClick={async () => {
+                           try {
+                             // 测试：检查 accessToken 是否已存储到后端
+                             const savedUser = Services.auth.getCurrentUser();
+                             if (savedUser) {
+                               const response = await fetch('http://localhost:3001/api/users/me', {
+                                 headers: {
+                                   'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+                                 },
+                               });
+                               
+                               if (!response.ok) {
+                                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                               }
+                               
+                               const data = await response.json();
+                               console.log('🔍 User data from backend:', data);
+                               console.log('🔍 Twitter auth status:', data.twitterAuth);
+                               
+                               if (data.twitterAuth?.hasAccessToken) {
+                                 alert('✅ Twitter accessToken 已存储到后端！\n\n可以尝试创建 Request 测试推文发布功能。');
+                                 setTwitterAccessTokenStatus('granted');
+                               } else {
+                                 alert('⚠️ Twitter accessToken 未存储到后端。\n\n请点击"授权 Twitter API 访问"按钮重新授权。');
+                                 setTwitterAccessTokenStatus('not_granted');
+                               }
+                             } else {
+                               alert('用户未登录');
+                             }
+                           } catch (error: any) {
+                             console.error('❌ Test failed:', error);
+                             alert(`测试失败: ${error.message}\n\n请查看控制台日志获取详细信息。`);
+                           }
+                         }}
+                         className="mt-2 w-full px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                       >
+                         测试：检查 accessToken 存储状态
+                       </button>
+                     </div>
+                   )}
+                 </div>
+               )}
+           </div>
+       </div>
+       )}
 
        {/* Tabs */}
        <div className="px-4 mt-6">
@@ -692,6 +999,11 @@ const ProfileContent: React.FC<{
                    <p className="mt-6 text-xs text-gray-400 text-center max-w-[200px]">Scan to pay USDT, USDC or other supported assets.</p>
                </div>
            </div>
+       )}
+
+       {/* Signature Test Modal */}
+       {showSignatureTest && (
+         <SignatureTestModal onClose={() => setShowSignatureTest(false)} />
        )}
     </div>
   );

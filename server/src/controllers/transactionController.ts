@@ -32,10 +32,15 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
  */
 export const createTransaction = async (req: AuthRequest, res: Response) => {
   try {
-    const { transaction } = req.body as CreateTransactionRequest;
+    const { transaction, tweetContent } = req.body as CreateTransactionRequest;
+    const userId = req.user?.userId;
     
     if (!transaction) {
       return res.status(400).json({ error: 'Transaction is required' });
+    }
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
     
     console.log('📝 Creating transaction:', JSON.stringify({
@@ -44,31 +49,136 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       currency: transaction.currency,
       isOTC: transaction.isOTC,
       privacy: transaction.privacy,
+      hasTweetContent: !!tweetContent,
     }));
     
     const newTransaction = await TransactionRepository.create(transaction);
     console.log('✅ Transaction created:', newTransaction.id);
     
-    // 如果隐私设置为 PUBLIC_X，发布到 Twitter
-    if (newTransaction.privacy === Privacy.PUBLIC_X) {
+    // Twitter 授权状态（用于前端判断是否需要重新授权）
+    let twitterAuthStatus: { needsReauth: boolean; reason?: string; error?: string } | undefined;
+    
+    // 如果隐私设置为 PUBLIC_X，后端使用用户的 Twitter accessToken 发布推文
+    if (newTransaction.privacy === Privacy.PUBLIC_X && newTransaction.type === TransactionType.REQUEST) {
       try {
-        console.log('🐦 Generating tweet content...');
-        const tweetContent = TwitterService.generateTweetContent(newTransaction);
-        console.log('📝 Tweet content:', tweetContent);
+        // 使用 UserRepository 的方法获取 Twitter accessToken
+        const { UserRepository } = await import('../db/repositories/userRepository.js');
         
-        const tweetResult = await TwitterService.postTweet(tweetContent);
+        let twitterAccessToken: string | null = null;
+        try {
+          twitterAccessToken = await UserRepository.getTwitterAccessToken(userId);
+          console.log('🔍 Retrieved Twitter accessToken from database:', {
+            hasToken: !!twitterAccessToken,
+            tokenLength: twitterAccessToken?.length || 0,
+            tokenPreview: twitterAccessToken ? twitterAccessToken.substring(0, 30) + '...' : null,
+          });
+        } catch (dbError: any) {
+          // 如果字段不存在，尝试执行迁移
+          if (dbError.code === 'ER_BAD_FIELD_ERROR' || dbError.errno === 1054) {
+            console.warn('⚠️ twitter_access_token column not found, attempting to add it...');
+            try {
+              const { pool } = await import('../db/config.js');
+              // 尝试添加字段
+              await pool.execute(
+                'ALTER TABLE users ADD COLUMN twitter_access_token TEXT'
+              );
+              console.log('✅ twitter_access_token column added successfully');
+              
+              // 重新查询
+              twitterAccessToken = await UserRepository.getTwitterAccessToken(userId);
+            } catch (migrationError: any) {
+              // 如果字段已存在，忽略错误
+              if (migrationError.code === 'ER_DUP_FIELDNAME' || migrationError.errno === 1060) {
+                console.log('ℹ️ twitter_access_token column already exists');
+                // 重新查询
+                twitterAccessToken = await UserRepository.getTwitterAccessToken(userId);
+              } else {
+                throw migrationError;
+              }
+            }
+          } else {
+            throw dbError;
+          }
+        }
         
-        // 更新交易，保存推文 ID
-        await TransactionRepository.update(newTransaction.id, {
-          xPostId: tweetResult.tweetId,
-        });
-        
-        console.log(`✅ Transaction posted to Twitter: ${tweetResult.tweetId}`);
+        // 如果没有 accessToken，标记为需要重新授权
+        if (!twitterAccessToken) {
+          console.warn('⚠️ User Twitter accessToken not found');
+          twitterAuthStatus = {
+            needsReauth: true,
+            reason: 'no_access_token',
+            error: '用户未授权 Twitter API 访问，需要重新授权'
+          };
+          
+          // 清除可能存在的无效 accessToken
+          try {
+            await UserRepository.update(userId, { twitterAccessToken: null } as any);
+          } catch (clearError) {
+            console.warn('⚠️ Failed to clear invalid accessToken:', clearError);
+          }
+        } else {
+          // 确定推文内容：优先使用用户编写的内容，否则自动生成
+          let finalTweetContent = tweetContent?.trim();
+          if (!finalTweetContent) {
+            console.log('🐦 No tweet content provided, generating automatically...');
+            finalTweetContent = TwitterService.generateTweetContent(newTransaction);
+          } else {
+            console.log('🐦 Using user-provided tweet content');
+          }
+          
+          // 确保内容不超过 280 字符
+          if (finalTweetContent.length > 280) {
+            finalTweetContent = finalTweetContent.substring(0, 277) + '...';
+          }
+          
+          console.log('📝 Tweet content:', finalTweetContent);
+          console.log('📝 Tweet content length:', finalTweetContent.length);
+          
+          // 使用用户的 Twitter accessToken 发布推文
+          console.log('🔑 Using user Twitter accessToken to post tweet...');
+          console.log('🔑 AccessToken details:', {
+            hasToken: !!twitterAccessToken,
+            tokenLength: twitterAccessToken?.length || 0,
+            tokenPreview: twitterAccessToken ? twitterAccessToken.substring(0, 30) + '...' : null,
+            tokenEndsWith: twitterAccessToken ? twitterAccessToken.substring(twitterAccessToken.length - 10) : null,
+          });
+          try {
+            const tweetResult = await TwitterService.postTweet(finalTweetContent, twitterAccessToken);
+            
+            // 更新交易，保存推文 ID
+            await TransactionRepository.update(newTransaction.id, {
+              xPostId: tweetResult.tweetId,
+            });
+            
+            console.log(`✅ Transaction posted to Twitter using user's accessToken: ${tweetResult.tweetId}`);
+            console.log(`🔗 Tweet URL: ${tweetResult.url}`);
+          } catch (tweetError: any) {
+            // 如果发推失败，标记为需要重新授权
+            console.error('❌ Failed to post tweet:', tweetError.message);
+            twitterAuthStatus = {
+              needsReauth: true,
+              reason: 'tweet_failed',
+              error: tweetError.message || '推文发布失败，accessToken 可能已过期或无效'
+            };
+            
+            // 清除无效的 accessToken
+            try {
+              await UserRepository.update(userId, { twitterAccessToken: null } as any);
+              console.log('✅ Cleared invalid accessToken');
+            } catch (clearError) {
+              console.warn('⚠️ Failed to clear invalid accessToken:', clearError);
+            }
+          }
+        }
       } catch (error: any) {
         // 如果 Twitter 发布失败，记录错误但不阻止交易创建
         console.error('❌ Failed to post transaction to Twitter:', error.message);
         console.error('Error details:', error);
-        // 继续执行，不阻止交易创建
+        twitterAuthStatus = {
+          needsReauth: true,
+          reason: 'tweet_failed',
+          error: error.message || '推文发布失败'
+        };
       }
     }
     
@@ -90,7 +200,11 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
     // 重新获取交易（包含更新的 xPostId）
     const updatedTransaction = await TransactionRepository.findById(newTransaction.id);
     
-    res.status(201).json({ transaction: updatedTransaction || newTransaction });
+    // 返回交易和 Twitter 授权状态
+    res.status(201).json({ 
+      transaction: updatedTransaction || newTransaction,
+      ...(twitterAuthStatus && { twitterAuthStatus })
+    });
   } catch (error: any) {
     console.error('❌ Create transaction error:', error);
     console.error('Error stack:', error.stack);

@@ -124,6 +124,16 @@ export interface ReplyTweetRequest {
 
 export interface CreateTransactionRequest {
   transaction: Omit<Transaction, 'id' | 'timestamp'>;
+  tweetContent?: string; // 用户编写的推文内容（如果选择 PUBLIC_X）
+}
+
+export interface CreateTransactionResponse {
+  transaction: Transaction;
+  twitterAuthStatus?: {
+    needsReauth: boolean; // 是否需要重新授权
+    reason?: string; // 原因（如：'no_access_token' | 'tweet_failed'）
+    error?: string; // 错误信息（如果有）
+  };
 }
 
 export interface UpdateTransactionRequest {

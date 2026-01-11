@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useApp } from '../context/AppContext';
 import { User, Currency, Privacy, TransactionType, OTCState } from '../utils';
 import { Services } from '../services';
 import { sendUSDTWithPrivy } from '../services/privyBlockchainService';
+import { ethers } from 'ethers';
 import { X, Search, Globe, Users, Lock, ArrowDown, ChevronLeft, Twitter, Loader } from 'lucide-react';
 
 interface Props {
@@ -23,7 +24,7 @@ const EXCHANGE_RATES: Record<string, number> = {
 };
 
 // 检查是否配置了 Privy（确保与 App.tsx 中的 PrivyWrapper 逻辑完全一致）
-const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || '';
+const privyAppId = (import.meta.env as any).VITE_PRIVY_APP_ID || '';
 const hasPrivy = !!(privyAppId && privyAppId.trim() !== '');
 
 // 内部组件：只有在 PrivyProvider 存在时才调用 usePrivy
@@ -31,15 +32,41 @@ const OTCActionModalWithPrivy: React.FC<Props> = (props) => {
   // 只有在 PrivyProvider 存在时才调用 usePrivy
   // 注意：如果 PrivyProvider 没有正确初始化，usePrivy 会抛出错误
   // 这应该不会发生，因为 App.tsx 中的 PrivyWrapper 会根据 hasPrivy 决定是否渲染 PrivyProvider
-  const { ready, authenticated, getEthersProvider, login: privyLogin } = usePrivy();
+  const privy = usePrivy();
+  const { ready, authenticated, login: privyLogin } = privy;
+  const { wallets, ready: walletsReady } = useWallets();
+  
+  // getEthersProvider 可能已被弃用，使用 wallets 来获取 provider
+  // 如果 usePrivy 返回了 getEthersProvider，使用它；否则从 wallets 获取
+  const getEthersProvider = async () => {
+    // 尝试使用 usePrivy 返回的 getEthersProvider（如果存在）
+    if ((privy as any).getEthersProvider && typeof (privy as any).getEthersProvider === 'function') {
+      try {
+        return await (privy as any).getEthersProvider();
+      } catch (error) {
+        console.warn('getEthersProvider from usePrivy failed, falling back to wallets');
+      }
+    }
+    
+    // 降级方案：从 wallets 获取 provider
+    if (wallets.length > 0) {
+      const wallet = wallets[0];
+      if (typeof wallet.getEthereumProvider === 'function') {
+        const ethereumProvider = await wallet.getEthereumProvider();
+        return new ethers.BrowserProvider(ethereumProvider);
+      }
+    }
+    return null;
+  };
   
   return (
     <OTCActionModalContent
       {...props}
-      ready={ready}
+      ready={ready && walletsReady}
       authenticated={authenticated}
       getEthersProvider={getEthersProvider}
       privyLogin={privyLogin}
+      wallets={wallets}
     />
   );
 };
@@ -53,6 +80,7 @@ const OTCActionModalWithoutPrivy: React.FC<Props> = (props) => {
       authenticated={false}
       getEthersProvider={undefined}
       privyLogin={undefined}
+      wallets={[]}
     />
   );
 };
@@ -63,6 +91,7 @@ interface ModalContentProps extends Props {
   authenticated: boolean;
   getEthersProvider?: () => Promise<any>;
   privyLogin?: (options?: any) => Promise<void>;
+  wallets?: any[];
 }
 
 const OTCActionModalContent: React.FC<ModalContentProps> = ({ 
@@ -73,7 +102,8 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
   ready,
   authenticated,
   getEthersProvider,
-  privyLogin
+  privyLogin,
+  wallets = []
 }) => {
   const { addTransaction, currentUser, friends, walletBalance } = useApp();
   const [step, setStep] = useState(initialUser || initialAddress ? 2 : 1);
@@ -92,17 +122,87 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
   const [usdtBalance, setUsdtBalance] = useState<number | null>(null);
   const [ngnBalance, setNgnBalance] = useState<number | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [tweetContent, setTweetContent] = useState<string>(''); // 推文内容（用户编写）
   
   // 使用 ref 存储最新的 Privy 状态，确保在异步函数中能访问到最新值
-  const privyStateRef = useRef({ ready, authenticated, getEthersProvider, privyLogin });
+  const privyStateRef = useRef({ ready, authenticated, getEthersProvider, privyLogin, wallets });
   
   // 当 Privy 状态改变时，更新 ref
   useEffect(() => {
-    privyStateRef.current = { ready, authenticated, getEthersProvider, privyLogin };
-  }, [ready, authenticated, getEthersProvider, privyLogin]);
+    privyStateRef.current = { ready, authenticated, getEthersProvider, privyLogin, wallets };
+  }, [ready, authenticated, getEthersProvider, privyLogin, wallets]);
   
   // Direction: True = USDT -> Fiat (Selling USDT), False = Fiat -> USDT (Buying USDT)
   const [isUSDTSource, setIsUSDTSource] = useState(true);
+  
+  // 当选择 PUBLIC_X 或 OTC 设置改变时，自动生成推文内容预览
+  // 使用 ref 跟踪用户是否手动编辑过推文内容
+  const hasManuallyEditedTweet = useRef(false);
+  
+  useEffect(() => {
+    // 如果用户已经手动编辑过推文，不再自动更新
+    if (hasManuallyEditedTweet.current) return;
+    
+    if (transactionType === TransactionType.REQUEST && privacy === Privacy.PUBLIC_X) {
+      const numAmount = parseFloat(amount);
+      if (!numAmount || isNaN(numAmount)) {
+        setTweetContent('');
+        return;
+      }
+      
+      const rate = EXCHANGE_RATES[otcTargetCurrency] || 1;
+      const isOTC = transactionType === TransactionType.REQUEST;
+      
+      // 自动生成推文内容预览（用户仍可以编辑）
+      let autoContent = '';
+      
+      if (isOTC) {
+        let requestAmount = 0;
+        let requestCurrency = currency;
+        let offerAmount = 0;
+        let offerCurrency = '';
+        
+        if (isUSDTSource) {
+          // Offer USDT, Request Fiat
+          requestAmount = numAmount * rate;
+          requestCurrency = otcTargetCurrency;
+          offerAmount = numAmount;
+          offerCurrency = Currency.USDT;
+          autoContent = `Requesting ${requestAmount.toFixed(2)} ${requestCurrency} (offering ${offerAmount} ${offerCurrency}) on VenmoOTC!${note ? `\n\n${note}` : ''}\n\n#DeFi #OTC #Crypto`;
+        } else {
+          // Offer Fiat, Request USDT
+          requestAmount = numAmount / rate;
+          requestCurrency = Currency.USDT;
+          offerAmount = numAmount;
+          offerCurrency = otcTargetCurrency;
+          autoContent = `Requesting ${requestAmount.toFixed(2)} ${requestCurrency} for ${offerAmount.toFixed(2)} ${offerCurrency} on VenmoOTC!${note ? `\n\n${note}` : ''}\n\n#DeFi #OTC #Crypto`;
+        }
+      } else {
+        // Regular Request
+        autoContent = `${currentUser?.name || 'User'} (${currentUser?.handle || '@user'}) is requesting ${numAmount} ${currency}${note ? `\n\n${note}` : ''}\n\n#DeFi #Crypto`;
+      }
+      
+      // 确保内容不超过 280 字符
+      if (autoContent.length > 280) {
+        autoContent = autoContent.substring(0, 277) + '...';
+      }
+      
+      setTweetContent(autoContent);
+    } else if (privacy !== Privacy.PUBLIC_X) {
+      // 如果不再选择 PUBLIC_X，清空推文内容
+      setTweetContent('');
+      hasManuallyEditedTweet.current = false;
+    }
+  }, [transactionType, privacy, amount, currency, otcTargetCurrency, isUSDTSource, note, currentUser]);
+  
+  // 监听推文内容的输入，标记为手动编辑
+  const handleTweetContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    if (text.length <= 280) {
+      setTweetContent(text);
+      hasManuallyEditedTweet.current = true; // 标记为手动编辑
+    }
+  };
   
   // 在第二步打开时（选择支付对象之后），获取当前账户的真实余额
   useEffect(() => {
@@ -247,27 +347,52 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
       
       // 首先检查是否已经可以获取 provider（使用 ref 中的最新值）
       const currentState = privyStateRef.current;
+      
+      // 方法1: 尝试使用 getEthersProvider
       if (currentState.ready && currentState.authenticated && 
           currentState.getEthersProvider && typeof currentState.getEthersProvider === 'function') {
         try {
           const provider = await currentState.getEthersProvider();
           if (provider) {
-            console.log('✅ Privy 已连接，直接获取 provider');
+            console.log('✅ Privy 已连接，使用 getEthersProvider 获取 provider');
             return provider;
           }
         } catch (error) {
-          console.log('⚠️ 获取 provider 失败，需要登录');
+          console.log('⚠️ getEthersProvider 失败，尝试备用方法...', error);
         }
       }
       
-      // 如果未登录，优先使用 Twitter 登录（因为用户要求使用 Twitter 关联的 Privy 钱包）
-      if (!currentState.ready || !currentState.authenticated || 
-          !currentState.getEthersProvider || typeof currentState.getEthersProvider !== 'function') {
+      // 方法2: 尝试使用 wallets 获取 provider（Privy v3 推荐方法）
+      if (currentState.ready && currentState.authenticated && 
+          currentState.wallets && currentState.wallets.length > 0) {
+        const embeddedWallet = currentState.wallets.find((w: any) => w.walletClientType === 'privy') || currentState.wallets[0];
+        if (embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function') {
+          try {
+            const ethereumProvider = await embeddedWallet.getEthereumProvider();
+            if (ethereumProvider) {
+              const provider = new ethers.BrowserProvider(ethereumProvider);
+              console.log('✅ Privy 已连接，使用 wallets.getEthereumProvider 获取 provider');
+              return provider;
+            }
+          } catch (error) {
+            console.log('⚠️ wallets.getEthereumProvider 失败，继续检查...', error);
+          }
+        }
+      }
+      
+      // 如果未登录且两种方法都不可用，则触发登录
+      const hasGetEthersProvider = currentState.getEthersProvider && typeof currentState.getEthersProvider === 'function';
+      const hasWallets = currentState.wallets && currentState.wallets.length > 0 && 
+                        currentState.wallets.some((w: any) => typeof w.getEthereumProvider === 'function');
+      
+      if (!currentState.ready || !currentState.authenticated) {
         console.log('⚠️ Privy 未连接，自动触发 Twitter 登录...');
         console.log('Privy 状态:', {
           ready: currentState.ready,
           authenticated: currentState.authenticated,
           hasGetEthersProvider: !!currentState.getEthersProvider,
+          walletsCount: currentState.wallets?.length || 0,
+          hasWallets: hasWallets,
           hasPrivyLogin: !!currentState.privyLogin
         });
         
@@ -360,11 +485,15 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
           
           // 详细日志
           if (attemptCount % 10 === 0) { // 每 5 秒输出一次详细日志
+            const walletsReady = latestState.wallets && latestState.wallets.length > 0 && 
+                              latestState.wallets.some((w: any) => typeof w.getEthereumProvider === 'function');
             console.log(`⏳ 等待 Privy 登录... (${Math.floor(elapsedTime / 1000)}s)`, {
               ready: latestState.ready,
               authenticated: latestState.authenticated,
               hasGetEthersProvider: !!latestState.getEthersProvider,
-              isFunction: typeof latestState.getEthersProvider === 'function'
+              isFunction: typeof latestState.getEthersProvider === 'function',
+              walletsCount: latestState.wallets?.length || 0,
+              hasWallets: walletsReady
             });
             console.log('💡 提示：如果看到 Privy 登录弹窗，请完成登录流程');
           }
@@ -387,21 +516,51 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
             continue;
           }
           
-          // 检查 getEthersProvider 是否可用
-          if (!latestState.getEthersProvider || typeof latestState.getEthersProvider !== 'function') {
-            // getEthersProvider 还未可用，继续等待
-            await new Promise(resolve => setTimeout(resolve, checkInterval));
-            continue;
+          // 方法1: 尝试使用 getEthersProvider
+          let provider: any = null;
+          if (latestState.getEthersProvider && typeof latestState.getEthersProvider === 'function') {
+            try {
+              console.log('🔄 尝试使用 getEthersProvider 获取 provider...');
+              provider = await latestState.getEthersProvider();
+              if (provider) {
+                console.log('✅ Privy 登录完成，钱包已连接（使用 getEthersProvider）');
+                console.log('📊 登录耗时:', Math.floor(elapsedTime / 1000), '秒');
+                return provider;
+              }
+            } catch (err: any) {
+              console.log('⚠️ getEthersProvider 失败，尝试备用方法...', err.message);
+            }
           }
           
-          // 尝试获取 provider
-          console.log('🔄 尝试获取 Privy provider...');
-          const provider = await latestState.getEthersProvider();
+          // 方法2: 尝试使用 wallets 获取 provider（Privy v3 推荐方法）
+          if (!provider && latestState.wallets && latestState.wallets.length > 0) {
+            const embeddedWallet = latestState.wallets.find((w: any) => w.walletClientType === 'privy') || latestState.wallets[0];
+            if (embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function') {
+              try {
+                console.log('🔄 尝试使用 wallets.getEthereumProvider 获取 provider...');
+                const ethereumProvider = await embeddedWallet.getEthereumProvider();
+                if (ethereumProvider) {
+                  provider = new ethers.BrowserProvider(ethereumProvider);
+                  console.log('✅ Privy 登录完成，钱包已连接（使用 wallets.getEthereumProvider）');
+                  console.log('📊 登录耗时:', Math.floor(elapsedTime / 1000), '秒');
+                  return provider;
+                }
+              } catch (err: any) {
+                console.log('⚠️ wallets.getEthereumProvider 失败，继续等待...', err.message);
+              }
+            }
+          }
           
-          if (provider) {
-            console.log('✅ Privy 登录完成，钱包已连接');
-            console.log('📊 登录耗时:', Math.floor(elapsedTime / 1000), '秒');
-            return provider;
+          // 如果两种方法都失败，继续等待
+          if (!provider) {
+            if (attemptCount % 10 === 0) {
+              console.log('⏳ 等待钱包连接...', {
+                hasGetEthersProvider: !!latestState.getEthersProvider,
+                walletsCount: latestState.wallets?.length || 0
+              });
+            }
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            continue;
           }
         } catch (error: any) {
           // 如果获取 provider 失败，记录错误但继续等待
@@ -429,12 +588,36 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
       console.log('⏳ 超时前最后一次尝试获取 provider...');
       try {
         const finalState = privyStateRef.current;
+        
+        // 方法1: 尝试 getEthersProvider
         if (finalState.ready && finalState.authenticated && 
             finalState.getEthersProvider && typeof finalState.getEthersProvider === 'function') {
-          const provider = await finalState.getEthersProvider();
-          if (provider) {
-            console.log('✅ 最后一次尝试成功！');
-            return provider;
+          try {
+            const provider = await finalState.getEthersProvider();
+            if (provider) {
+              console.log('✅ 最后一次尝试成功（使用 getEthersProvider）！');
+              return provider;
+            }
+          } catch (err) {
+            console.warn('⚠️ 最后一次尝试 getEthersProvider 失败:', err);
+          }
+        }
+        
+        // 方法2: 尝试 wallets
+        if (finalState.ready && finalState.authenticated && 
+            finalState.wallets && finalState.wallets.length > 0) {
+          const embeddedWallet = finalState.wallets.find((w: any) => w.walletClientType === 'privy') || finalState.wallets[0];
+          if (embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function') {
+            try {
+              const ethereumProvider = await embeddedWallet.getEthereumProvider();
+              if (ethereumProvider) {
+                const provider = new ethers.BrowserProvider(ethereumProvider);
+                console.log('✅ 最后一次尝试成功（使用 wallets.getEthereumProvider）！');
+                return provider;
+              }
+            } catch (err) {
+              console.warn('⚠️ 最后一次尝试 wallets.getEthereumProvider 失败:', err);
+            }
           }
         }
       } catch (error: any) {
@@ -443,11 +626,16 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
       
       // 输出最终状态用于调试
       const finalState = privyStateRef.current;
+      const finalHasWallets = finalState.wallets && finalState.wallets.length > 0 && 
+                        finalState.wallets.some((w: any) => typeof w.getEthereumProvider === 'function');
+      
       console.error('❌ Privy 登录超时', {
         ready: finalState.ready,
         authenticated: finalState.authenticated,
         hasGetEthersProvider: !!finalState.getEthersProvider,
         isFunction: typeof finalState.getEthersProvider === 'function',
+        walletsCount: finalState.wallets?.length || 0,
+        hasWallets: finalHasWallets,
         elapsedTime: Math.floor((Date.now() - startTime) / 1000) + '秒'
       });
       
@@ -457,8 +645,10 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
         errorMessage += '\n\nPrivy 钱包服务未就绪，请刷新页面后重试。';
       } else if (!finalState.authenticated) {
         errorMessage += '\n\n未检测到登录完成。请确认：\n1. 是否看到了 Privy 登录弹窗？\n2. 是否完成了 Twitter 登录？\n3. 登录弹窗是否已关闭？';
-      } else if (!finalState.getEthersProvider) {
-        errorMessage += '\n\n登录已完成，但钱包连接不可用。请刷新页面后重试。';
+      } else if (!finalState.getEthersProvider && !finalHasWallets) {
+        errorMessage += '\n\n登录已完成，但钱包连接不可用。请刷新页面后重试。\n\n提示：如果钱包已创建，请尝试刷新页面。';
+      } else {
+        errorMessage += '\n\n钱包服务可能尚未完全初始化，请刷新页面后重试。';
       }
       
       throw new Error(errorMessage);
@@ -585,7 +775,11 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
         otcFiatCurrency: isOTC ? finalOtcFiat : undefined,
         otcOfferAmount: isOTC ? finalOtcOfferAmount : undefined,
         likes: 0,
-        comments: 0
+        comments: 0,
+        // 如果选择 PUBLIC_X 且是 REQUEST，发送推文内容（如果有）
+        tweetContent: (privacy === Privacy.PUBLIC_X && transactionType === TransactionType.REQUEST && tweetContent.trim()) 
+          ? tweetContent.trim() 
+          : undefined
       });
       
       setIsSubmitting(false);
@@ -899,6 +1093,31 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
             onChange={(e) => setNote(e.target.value)}
             className="w-full bg-gray-100 rounded-2xl p-4 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100 transition text-sm"
         />
+
+        {/* 推文内容输入框（仅在选择 PUBLIC_X 且是 REQUEST 时显示） */}
+        {transactionType === TransactionType.REQUEST && privacy === Privacy.PUBLIC_X && (
+          <div className="bg-sky-50 border-2 border-sky-200 rounded-2xl p-4 space-y-2">
+            <div className="flex items-center gap-2 mb-2">
+              <Twitter className="w-4 h-4 text-sky-600" />
+              <p className="text-xs font-bold text-sky-900 uppercase">推文内容（将发布到 X）</p>
+            </div>
+            <textarea 
+                placeholder="编写推文内容...（例如：Requesting 100 USDT for 165000 NGN on VenmoOTC! #DeFi #OTC）"
+                value={tweetContent}
+                onChange={handleTweetContentChange}
+                className="w-full bg-white border border-sky-300 rounded-xl p-3 outline-none resize-none h-24 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition text-sm"
+            />
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-sky-600">后端将使用您的 Twitter accessToken 发布推文</span>
+              <span className={`font-bold ${tweetContent.length > 260 ? 'text-red-500' : 'text-sky-600'}`}>
+                {tweetContent.length}/280
+              </span>
+            </div>
+            {!tweetContent.trim() && (
+              <p className="text-xs text-amber-600 mt-1">⚠️ 如果留空，后端将自动生成推文内容</p>
+            )}
+          </div>
+        )}
 
         <div>
             <p className="text-xs font-bold text-gray-400 uppercase mb-3 ml-1">Stickers</p>

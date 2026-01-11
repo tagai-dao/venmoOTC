@@ -17,6 +17,20 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
+        },
+        dedupe: ['ethers']
+      },
+      optimizeDeps: {
+        include: ['ethers', '@privy-io/react-auth'],
+        exclude: [],
+        esbuildOptions: {
+          target: 'es2020'
+        }
+      },
+      build: {
+        commonjsOptions: {
+          include: [/node_modules/],
+          transformMixedEsModules: true
         }
       }
     };

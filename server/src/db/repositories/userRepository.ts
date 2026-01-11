@@ -9,6 +9,7 @@ export class UserRepository {
    * 将数据库行转换为 User 对象
    */
   private static rowToUser(row: any): User {
+    // twitterAccessToken 不暴露给前端（安全考虑），只在内部使用
     return {
       id: row.id,
       handle: row.handle,
@@ -21,7 +22,38 @@ export class UserRepository {
         accountNumber: row.account_number,
         accountName: row.account_name,
       } : undefined,
-    };
+      // twitterAccessToken 存储在数据库中，但不包含在 User 类型中（安全考虑）
+      // 需要时直接从数据库查询
+    } as User;
+  }
+  
+  /**
+   * 获取用户的 Twitter accessToken（内部使用，不暴露给前端）
+   */
+  static async getTwitterAccessToken(userId: string): Promise<string | null> {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT twitter_access_token FROM users WHERE id = ?',
+        [userId]
+      );
+      const result = rows as any[];
+      const token = result[0]?.twitter_access_token || null;
+      
+      if (token) {
+        console.log('✅ Found Twitter accessToken in database:', {
+          userId,
+          tokenLength: token.length,
+          tokenPreview: token.substring(0, 30) + '...',
+        });
+      } else {
+        console.log('⚠️ No Twitter accessToken found in database for user:', userId);
+      }
+      
+      return token;
+    } catch (error: any) {
+      console.error('❌ Error retrieving Twitter accessToken:', error.message);
+      throw error;
+    }
   }
 
   /**
@@ -99,8 +131,8 @@ export class UserRepository {
     const id = user.id || `u${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
     await pool.execute(
-      `INSERT INTO users (id, handle, name, avatar, wallet_address, is_verified, bank_name, account_number, account_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, handle, name, avatar, wallet_address, is_verified, bank_name, account_number, account_name, twitter_access_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         user.handle,
@@ -111,6 +143,7 @@ export class UserRepository {
         user.fiatDetails?.bankName || null,
         user.fiatDetails?.accountNumber || null,
         user.fiatDetails?.accountName || null,
+        (user as any).twitterAccessToken || null,
       ]
     );
     
@@ -157,6 +190,10 @@ export class UserRepository {
         fields.push(`account_name = ?`);
         values.push(updates.fiatDetails.accountName);
       }
+    }
+    if ((updates as any).twitterAccessToken !== undefined) {
+      fields.push(`twitter_access_token = ?`);
+      values.push((updates as any).twitterAccessToken || null);
     }
 
     if (fields.length === 0) {

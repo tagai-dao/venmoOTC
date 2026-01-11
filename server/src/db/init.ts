@@ -118,6 +118,12 @@ export const initDatabase = async (): Promise<void> => {
                     'This may be expected if referenced tables do not exist yet.'
                 );
                 continue;
+              } else if (/^ALTER\s+TABLE/i.test(statement)) {
+                console.warn(
+                  '⚠️ Skipping ALTER TABLE because base table does not exist yet. ' +
+                    'This may be expected if running migrations in order for the first time.'
+                );
+                continue;
               }
             }
 
@@ -129,58 +135,67 @@ export const initDatabase = async (): Promise<void> => {
         }
       }
 
-      // 执行额外的 migration（003_add_fiat_rejection_count.sql）
-      try {
-        const additionalMigrationPath = join(__dirname, 'migrations', '003_add_fiat_rejection_count.sql');
-        const additionalMigrationSQL = readFileSync(additionalMigrationPath, 'utf-8');
-        const statements = additionalMigrationSQL
-          .split(';')
-          .map(s => s.trim())
-          .filter(s => s.length > 0 && !s.startsWith('--'));
+      // 执行额外的 migrations
+      const additionalMigrations = [
+        '003_add_fiat_rejection_count.sql',
+        '009_add_twitter_access_token.sql',
+      ];
+      
+      for (const migrationFile of additionalMigrations) {
+        try {
+          const additionalMigrationPath = join(__dirname, 'migrations', migrationFile);
+          const additionalMigrationSQL = readFileSync(additionalMigrationPath, 'utf-8');
+          const statements = additionalMigrationSQL
+            .split(';')
+            .map(s => s.trim())
+            .filter(s => s.length > 0 && !s.startsWith('--'));
 
-        for (const statement of statements) {
-          if (statement) {
-            try {
-              console.log('📜 Executing additional migration statement:\n', statement);
-              await connection.execute(statement);
-            } catch (err: any) {
-              // 处理死锁错误 - 重试机制
-              if (
-                (typeof err.code === 'string' && err.code === 'ER_LOCK_DEADLOCK') ||
-                (typeof err.errno === 'number' && err.errno === 1213) ||
-                (typeof err.code === 'number' && err.code === 1213)
-              ) {
-                console.warn('⚠️ Deadlock detected in additional migration, retrying...');
-                let retries = 3;
-                let success = false;
-                while (retries > 0 && !success) {
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                  try {
-                    await connection.execute(statement);
-                    success = true;
-                    console.log('✅ Additional migration statement executed after retry');
-                  } catch (retryErr: any) {
-                    retries--;
-                    if (retries === 0) {
-                      console.warn('⚠️ Additional migration deadlock persisted, skipping:', err.message);
+          for (const statement of statements) {
+            if (statement) {
+              try {
+                console.log(`📜 Executing additional migration (${migrationFile}):\n`, statement);
+                await connection.execute(statement);
+              } catch (err: any) {
+                // 处理死锁错误 - 重试机制
+                if (
+                  (typeof err.code === 'string' && err.code === 'ER_LOCK_DEADLOCK') ||
+                  (typeof err.errno === 'number' && err.errno === 1213) ||
+                  (typeof err.code === 'number' && err.code === 1213)
+                ) {
+                  console.warn('⚠️ Deadlock detected in additional migration, retrying...');
+                  let retries = 3;
+                  let success = false;
+                  while (retries > 0 && !success) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    try {
+                      await connection.execute(statement);
+                      success = true;
+                      console.log('✅ Additional migration statement executed after retry');
+                    } catch (retryErr: any) {
+                      retries--;
+                      if (retries === 0) {
+                        console.warn('⚠️ Additional migration deadlock persisted, skipping:', err.message);
+                      }
                     }
                   }
+                  continue;
                 }
-                continue;
-              }
-              
-              // 如果字段已存在，忽略错误（允许重复执行）
-              if (err.code === 'ER_DUP_FIELDNAME' || err.code === 1060) {
-                console.log('ℹ️  Field fiat_rejection_count already exists, skipping...');
-              } else {
-                console.warn('⚠️  Additional migration warning:', err.message);
+                
+                // 如果字段已存在，忽略错误（允许重复执行）
+                if (err.code === 'ER_DUP_FIELDNAME' || err.code === 1060 || err.errno === 1060) {
+                  console.log(`ℹ️  Field from ${migrationFile} already exists, skipping...`);
+                } else if (err.code === 'ER_DUP_KEYNAME' || err.errno === 1061) {
+                  console.log(`ℹ️  Index from ${migrationFile} already exists, skipping...`);
+                } else {
+                  console.warn(`⚠️  Additional migration (${migrationFile}) warning:`, err.message);
+                }
               }
             }
           }
+          console.log(`✅ Additional migration ${migrationFile} executed successfully`);
+        } catch (err: any) {
+          console.warn(`⚠️  Additional migration (${migrationFile}) warning:`, err.message);
         }
-        console.log('✅ Additional migrations executed successfully');
-      } catch (err: any) {
-        console.warn('⚠️  Additional migration warning:', err.message);
       }
 
       console.log('✅ Database schema initialized successfully');

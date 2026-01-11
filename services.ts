@@ -82,6 +82,7 @@ export const Services = {
             name: string;
             avatar?: string;
             privyUserId: string;
+            twitterAccessToken?: string;
         }): Promise<{ user: User; token: string }> => {
             const response = await apiRequest<{ user: User; token: string }>('/api/auth/privy', {
                 method: 'POST',
@@ -213,12 +214,21 @@ export const Services = {
             return response.transactions;
         },
 
-        createTransaction: async (transaction: Omit<Transaction, 'id' | 'timestamp'>): Promise<Transaction> => {
-            const response = await apiRequest<{ transaction: Transaction }>('/api/transactions', {
+        createTransaction: async (transaction: Omit<Transaction, 'id' | 'timestamp'> & { tweetContent?: string }): Promise<{ transaction: Transaction; twitterAuthStatus?: { needsReauth: boolean; reason?: string; error?: string } }> => {
+            // 提取 tweetContent，它应该作为单独的字段发送
+            const { tweetContent, ...transactionData } = transaction;
+            
+            const response = await apiRequest<{ transaction: Transaction; twitterAuthStatus?: { needsReauth: boolean; reason?: string; error?: string } }>('/api/transactions', {
                 method: 'POST',
-                body: JSON.stringify({ transaction }),
+                body: JSON.stringify({ 
+                    transaction: transactionData,
+                    tweetContent: tweetContent,
+                }),
             });
-            return response.transaction;
+            return {
+                transaction: response.transaction,
+                twitterAuthStatus: response.twitterAuthStatus,
+            };
         },
 
         updateTransaction: async (id: string, updates: Partial<Transaction> & { newReply?: any }): Promise<Transaction> => {
