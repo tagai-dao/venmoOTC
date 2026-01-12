@@ -51,6 +51,11 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       privacy: transaction.privacy,
       hasTweetContent: !!tweetContent,
     }));
+    console.log('👤 User info from JWT token:', {
+      userId: userId,
+      handle: req.user?.handle,
+      walletAddress: req.user?.walletAddress,
+    });
     
     const newTransaction = await TransactionRepository.create(transaction);
     console.log('✅ Transaction created:', newTransaction.id);
@@ -66,12 +71,39 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
         
         let twitterAccessToken: string | null = null;
         try {
+          console.log('🔍 Attempting to retrieve Twitter accessToken for user:', userId);
           twitterAccessToken = await UserRepository.getTwitterAccessToken(userId);
           console.log('🔍 Retrieved Twitter accessToken from database:', {
+            userId,
             hasToken: !!twitterAccessToken,
             tokenLength: twitterAccessToken?.length || 0,
             tokenPreview: twitterAccessToken ? twitterAccessToken.substring(0, 30) + '...' : null,
           });
+          
+          // 如果 token 为空，检查数据库中是否有该用户
+          if (!twitterAccessToken) {
+            const user = await UserRepository.findById(userId);
+            console.log('🔍 User check:', {
+              userId,
+              userExists: !!user,
+              userHandle: user?.handle,
+              userWalletAddress: user?.walletAddress,
+            });
+            
+            // 直接查询数据库确认
+            const { pool } = await import('../db/config.js');
+            const [rows] = await pool.execute(
+              'SELECT twitter_access_token FROM users WHERE id = ?',
+              [userId]
+            );
+            const result = rows as any[];
+            console.log('🔍 Direct database query result:', {
+              userId,
+              rowCount: result.length,
+              hasToken: !!result[0]?.twitter_access_token,
+              tokenValue: result[0]?.twitter_access_token ? result[0].twitter_access_token.substring(0, 30) + '...' : null,
+            });
+          }
         } catch (dbError: any) {
           // 如果字段不存在，尝试执行迁移
           if (dbError.code === 'ER_BAD_FIELD_ERROR' || dbError.errno === 1054) {
@@ -117,56 +149,102 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
             console.warn('⚠️ Failed to clear invalid accessToken:', clearError);
           }
         } else {
-          // 确定推文内容：优先使用用户编写的内容，否则自动生成
-          let finalTweetContent = tweetContent?.trim();
-          if (!finalTweetContent) {
-            console.log('🐦 No tweet content provided, generating automatically...');
-            finalTweetContent = TwitterService.generateTweetContent(newTransaction);
-          } else {
-            console.log('🐦 Using user-provided tweet content');
-          }
+          // 在发推前，确保 token 有效（检查并刷新如果需要）
+          const { TwitterTokenRefreshService } = await import('../services/twitterTokenRefreshService.js');
+          let validAccessToken = await TwitterTokenRefreshService.ensureValidToken(userId);
           
-          // 确保内容不超过 280 字符
-          if (finalTweetContent.length > 280) {
-            finalTweetContent = finalTweetContent.substring(0, 277) + '...';
-          }
-          
-          console.log('📝 Tweet content:', finalTweetContent);
-          console.log('📝 Tweet content length:', finalTweetContent.length);
-          
-          // 使用用户的 Twitter accessToken 发布推文
-          console.log('🔑 Using user Twitter accessToken to post tweet...');
-          console.log('🔑 AccessToken details:', {
-            hasToken: !!twitterAccessToken,
-            tokenLength: twitterAccessToken?.length || 0,
-            tokenPreview: twitterAccessToken ? twitterAccessToken.substring(0, 30) + '...' : null,
-            tokenEndsWith: twitterAccessToken ? twitterAccessToken.substring(twitterAccessToken.length - 10) : null,
-          });
-          try {
-            const tweetResult = await TwitterService.postTweet(finalTweetContent, twitterAccessToken);
-            
-            // 更新交易，保存推文 ID
-            await TransactionRepository.update(newTransaction.id, {
-              xPostId: tweetResult.tweetId,
-            });
-            
-            console.log(`✅ Transaction posted to Twitter using user's accessToken: ${tweetResult.tweetId}`);
-            console.log(`🔗 Tweet URL: ${tweetResult.url}`);
-          } catch (tweetError: any) {
-            // 如果发推失败，标记为需要重新授权
-            console.error('❌ Failed to post tweet:', tweetError.message);
+          if (!validAccessToken) {
+            console.error('❌ 无法获取有效的 Twitter accessToken');
             twitterAuthStatus = {
               needsReauth: true,
-              reason: 'tweet_failed',
-              error: tweetError.message || '推文发布失败，accessToken 可能已过期或无效'
+              reason: 'token_refresh_failed',
+              error: 'Twitter accessToken 刷新失败，请重新登录'
             };
             
-            // 清除无效的 accessToken
+            // 清除无效的 token
             try {
-              await UserRepository.update(userId, { twitterAccessToken: null } as any);
-              console.log('✅ Cleared invalid accessToken');
+              await UserRepository.update(userId, { 
+                twitterAccessToken: null,
+                twitterRefreshToken: null,
+                twitterTokenExpiresAt: null,
+              } as any);
+              TwitterTokenRefreshService.stopRefreshTimer(userId);
+              console.log('✅ Cleared invalid tokens and stopped refresh timer');
             } catch (clearError) {
-              console.warn('⚠️ Failed to clear invalid accessToken:', clearError);
+              console.warn('⚠️ Failed to clear invalid tokens:', clearError);
+            }
+          } else {
+            // 确定推文内容：优先使用用户编写的内容，否则自动生成
+            let finalTweetContent = tweetContent?.trim();
+            if (!finalTweetContent) {
+              console.log('🐦 No tweet content provided, generating automatically...');
+              finalTweetContent = TwitterService.generateTweetContent(newTransaction);
+            } else {
+              console.log('🐦 Using user-provided tweet content');
+            }
+            
+            // 确保内容不超过 280 字符
+            if (finalTweetContent.length > 280) {
+              finalTweetContent = finalTweetContent.substring(0, 277) + '...';
+            }
+            
+            console.log('📝 Tweet content:', finalTweetContent);
+            console.log('📝 Tweet content length:', finalTweetContent.length);
+            
+            // 使用有效的 Twitter accessToken 发布推文
+            console.log('🔑 Using user Twitter accessToken to post tweet...');
+            console.log('🔑 AccessToken details:', {
+              hasToken: !!validAccessToken,
+              tokenLength: validAccessToken?.length || 0,
+              tokenPreview: validAccessToken ? validAccessToken.substring(0, 30) + '...' : null,
+            });
+            
+            try {
+              const tweetResult = await TwitterService.postTweet(finalTweetContent, validAccessToken);
+              
+              // 更新交易，保存推文 ID
+              await TransactionRepository.update(newTransaction.id, {
+                xPostId: tweetResult.tweetId,
+              });
+              
+              console.log(`✅ Transaction posted to Twitter using user's accessToken: ${tweetResult.tweetId}`);
+              console.log(`🔗 Tweet URL: ${tweetResult.url}`);
+            } catch (tweetError: any) {
+              // 如果发推失败，标记为需要重新授权
+              console.error('❌ Failed to post tweet:', tweetError.message);
+              
+              // 检查是否是 token 无效的错误
+              const isTokenError = tweetError.message?.includes('authentication failed') || 
+                                   tweetError.message?.includes('invalid') ||
+                                   tweetError.message?.includes('expired') ||
+                                   tweetError.response?.status === 401;
+              
+              if (isTokenError) {
+                twitterAuthStatus = {
+                  needsReauth: true,
+                  reason: 'tweet_failed_token_invalid',
+                  error: 'Twitter accessToken 无效或已过期，请重新登录'
+                };
+                
+                // 清除无效的 accessToken 并停止刷新定时任务
+                try {
+                  await UserRepository.update(userId, { 
+                    twitterAccessToken: null,
+                    twitterRefreshToken: null,
+                    twitterTokenExpiresAt: null,
+                  } as any);
+                  TwitterTokenRefreshService.stopRefreshTimer(userId);
+                  console.log('✅ Cleared invalid tokens and stopped refresh timer');
+                } catch (clearError) {
+                  console.warn('⚠️ Failed to clear invalid tokens:', clearError);
+                }
+              } else {
+                twitterAuthStatus = {
+                  needsReauth: false,
+                  reason: 'tweet_failed_other',
+                  error: tweetError.message || '推文发布失败'
+                };
+              }
             }
           }
         }

@@ -324,31 +324,82 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
       }
       
       // 2. 创建多签合约（2/2 多签，由支付者和 Request 发布者控制）
+      // 注意：对于 Request USDT，多签合约由交易方（支付者）创建
       const { multisig } = await Services.multisig.createContract(
         transaction.id,
         currentUser.walletAddress, // 支付者的钱包地址
         usdtAmount
       );
       
-      // 3. 发送 USDT 到多签合约（这会自动更新状态为 AWAITING_FIAT_PAYMENT）
-      await Services.multisig.sendUSDTToMultisig(transaction.id);
+      console.log('✅ 多签合约已创建:', multisig.contractAddress);
       
-      // 4. 更新钱包余额（从支付者的钱包中扣除 USDT）
+      // 3. 使用 Privy 钱包发送真实的 USDT 到多签合约地址
+      const currentState = privyStateRef.current;
+      
+      if (!currentState.ready || !currentState.authenticated) {
+        throw new Error('钱包未连接。请先连接 Privy 钱包。');
+      }
+      
+      // 获取 provider
+      let provider: any = null;
+      
+      // 方法1: 尝试使用 getEthersProvider
+      if (currentState.getEthersProvider && typeof currentState.getEthersProvider === 'function') {
+        try {
+          provider = await currentState.getEthersProvider();
+          if (provider) {
+            console.log('✅ 使用 getEthersProvider 获取 provider');
+          }
+        } catch (err) {
+          console.warn('⚠️ getEthersProvider 失败，尝试备用方法...', err);
+        }
+      }
+      
+      // 方法2: 如果 getEthersProvider 不可用，使用 wallets 获取 provider
+      if (!provider && currentState.wallets && currentState.wallets.length > 0) {
+        const embeddedWallet = currentState.wallets.find((w: any) => w.walletClientType === 'privy') || currentState.wallets[0];
+        if (embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function') {
+          try {
+            const ethereumProvider = await embeddedWallet.getEthereumProvider();
+            if (ethereumProvider) {
+              provider = new ethers.BrowserProvider(ethereumProvider);
+              console.log('✅ 使用 wallets.getEthereumProvider 获取 provider');
+            }
+          } catch (err: any) {
+            console.error('❌ 从 wallets 获取 provider 失败:', err);
+          }
+        }
+      }
+      
+      if (!provider) {
+        throw new Error('无法获取钱包连接。请确保钱包已连接并已创建嵌入钱包。');
+      }
+      
+      // 使用 Privy 发送 USDT 到多签合约地址
+      console.log(`📤 准备发送 ${usdtAmount} USDT 到多签合约地址: ${multisig.contractAddress}`);
+      const txHash = await sendUSDTWithPrivy(provider, multisig.contractAddress, usdtAmount);
+      
+      console.log('✅ USDT 已发送到多签合约！交易哈希:', txHash);
+      
+      // 4. 通知后端 USDT 已发送（更新状态）
+      // 注意：这里不需要调用 sendUSDTToMultisig，因为我们已经用 Privy 发送了真实的 USDT
+      // 但我们需要更新后端状态，表示 USDT 已在多签合约中
+      await Services.transactions.updateTransaction(transaction.id, {
+        usdtInEscrow: true,
+        otcState: OTCState.AWAITING_FIAT_PAYMENT,
+        toUser: currentUser, // 设置支付 USDT 的人
+      });
+      
+      // 5. 更新钱包余额（从支付者的钱包中扣除 USDT）
       setWalletBalance(prev => ({
         ...prev,
         [Currency.USDT]: Math.max(0, prev[Currency.USDT] - usdtAmount)
       }));
       
-      // 5. 更新交易，设置 toUser（支付 USDT 的人）
-      // 注意：selectedTraderId 和状态已经在 createMultisigContract 和 sendUSDTToMultisig 中更新了
-      await updateTransaction(transaction.id, {
-        toUser: currentUser, // 设置支付 USDT 的人
-      });
-      
-      // 6. 刷新 feed
+      // 6. 刷新 feed 以更新状态
       await refreshFeed();
       
-      alert('✅ USDT 已发送到多签合约！等待发布者支付法币。');
+      alert(`✅ USDT 已发送到多签合约！\n\n交易哈希: ${txHash}\n多签合约地址: ${multisig.contractAddress}\n\n等待发布者支付法币。`);
     } catch (error: any) {
       console.error('支付 USDT 失败:', error);
       alert(error?.message || '支付失败，请重试');

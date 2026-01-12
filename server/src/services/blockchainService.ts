@@ -21,8 +21,21 @@ export class BlockchainService {
   private wallet: ethers.Wallet | null = null;
 
   constructor() {
-    // 初始化 BNB Chain provider
-    this.provider = new ethers.JsonRpcProvider(config.blockchain.bnbChainRpcUrl);
+    // 定义 BSC 网络配置（避免自动检测网络导致的超时）
+    const bscNetwork = {
+      name: 'BSC',
+      chainId: config.blockchain.chainId,
+    };
+    
+    // 初始化 BNB Chain provider，使用静态网络配置避免自动检测网络
+    // 这样可以避免启动时的网络检测超时问题
+    this.provider = new ethers.JsonRpcProvider(
+      config.blockchain.bnbChainRpcUrl,
+      bscNetwork,
+      {
+        staticNetwork: true,
+      }
+    );
     
     // 初始化 USDT 合约
     this.usdtContract = new ethers.Contract(
@@ -251,6 +264,25 @@ export class BlockchainService {
       throw new Error('Invalid address');
     }
     return ethers.getAddress(address);
+  }
+
+  /**
+   * 测试 RPC 连接（用于初始化时检查）
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      // 使用 getNetwork() 测试连接，设置超时
+      const networkPromise = this.provider.getNetwork();
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 10000)
+      );
+      
+      await Promise.race([networkPromise, timeoutPromise]);
+      return true;
+    } catch (error: any) {
+      console.warn('⚠️ RPC connection test failed:', error.message);
+      return false;
+    }
   }
 }
 

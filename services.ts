@@ -83,6 +83,7 @@ export const Services = {
             avatar?: string;
             privyUserId: string;
             twitterAccessToken?: string;
+            twitterRefreshToken?: string;
         }): Promise<{ user: User; token: string }> => {
             const response = await apiRequest<{ user: User; token: string }>('/api/auth/privy', {
                 method: 'POST',

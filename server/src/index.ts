@@ -100,21 +100,24 @@ async function startServer() {
     // 4. 初始化区块链服务
     console.log('⛓️ Initializing blockchain service...');
     try {
-      // 测试连接
-      const testAddress = '0x0000000000000000000000000000000000000000';
-      await blockchainService.getBNBBalance(testAddress).catch(() => {
-        // 预期会失败，这只是测试连接
-      });
-      console.log('✅ Blockchain service initialized');
+      // 测试连接（带超时保护，避免长时间等待）
+      const isConnected = await blockchainService.testConnection();
+      if (isConnected) {
+        console.log('✅ Blockchain service initialized');
+      } else {
+        console.log('✅ Blockchain service initialized (RPC connection test failed, but service will continue)');
+      }
+      
       console.log(`   RPC: ${config.blockchain.bnbChainRpcUrl}`);
       console.log(`   USDT Contract: ${config.blockchain.usdtContractAddress}`);
-      if (config.blockchain.privateKey) {
+      if (config.blockchain.privateKey && config.blockchain.privateKey !== 'your_private_key_here' && !config.blockchain.privateKey.startsWith('0xyour_')) {
         console.log(`   Wallet: Configured`);
       } else {
         console.log(`   ⚠️ Wallet: Not configured (PRIVATE_KEY not set)`);
       }
     } catch (error: any) {
       console.warn('⚠️ Blockchain service initialization warning:', error.message);
+      console.log('✅ Blockchain service initialized (with warnings)');
     }
 
     // 5. 启动余额同步服务（可选，每 5 分钟同步一次）
@@ -126,13 +129,43 @@ async function startServer() {
       balanceSyncService.startPeriodicSync(5);
     }
 
-    // 6. 启动服务器
-    app.listen(PORT, () => {
+    // 6. 初始化 Twitter token 刷新服务（为所有已有 token 的用户启动定时任务）
+    try {
+      const { TwitterTokenRefreshService } = await import('./services/twitterTokenRefreshService.js');
+      await TwitterTokenRefreshService.initializeAllRefreshTimers();
+    } catch (error: any) {
+      console.warn('⚠️ Twitter token 刷新服务初始化失败:', error.message);
+      // 不阻止服务器启动
+    }
+
+    // 7. 启动服务器
+    const server = app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📡 Environment: ${config.nodeEnv}`);
       console.log(`🌐 Frontend URL: ${config.frontendUrl}`);
       console.log(`💾 Database: Connected`);
       console.log(`⛓️ Blockchain: BNB Chain (${config.blockchain.chainId})`);
+    });
+
+    // 8. 优雅关闭：清理定时任务
+    process.on('SIGTERM', async () => {
+      console.log('🛑 SIGTERM received, shutting down gracefully...');
+      const { TwitterTokenRefreshService } = await import('./services/twitterTokenRefreshService.js');
+      TwitterTokenRefreshService.cleanup();
+      server.close(() => {
+        console.log('✅ Server closed');
+        process.exit(0);
+      });
+    });
+
+    process.on('SIGINT', async () => {
+      console.log('🛑 SIGINT received, shutting down gracefully...');
+      const { TwitterTokenRefreshService } = await import('./services/twitterTokenRefreshService.js');
+      TwitterTokenRefreshService.cleanup();
+      server.close(() => {
+        console.log('✅ Server closed');
+        process.exit(0);
+      });
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

@@ -21,6 +21,8 @@ export const initDatabase = async (): Promise<void> => {
         join(__dirname, 'migrations', '006_create_social_interactions.sql'),
         join(__dirname, 'migrations', '007_add_bidding_and_multisig.sql'),
         join(__dirname, 'migrations', '008_add_multisig_signatures.sql'),
+        join(__dirname, 'migrations', '009_add_twitter_access_token.sql'),
+        join(__dirname, 'migrations', '010_add_twitter_refresh_token.sql'),
       ];
 
       for (const migrationPath of migrationPaths) {
@@ -139,6 +141,7 @@ export const initDatabase = async (): Promise<void> => {
       const additionalMigrations = [
         '003_add_fiat_rejection_count.sql',
         '009_add_twitter_access_token.sql',
+        '010_add_twitter_refresh_token.sql',
       ];
       
       for (const migrationFile of additionalMigrations) {

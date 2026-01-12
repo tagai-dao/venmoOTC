@@ -57,6 +57,40 @@ export class UserRepository {
   }
 
   /**
+   * 获取用户的 Twitter refresh token
+   */
+  static async getTwitterRefreshToken(userId: string): Promise<string | null> {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT twitter_refresh_token FROM users WHERE id = ?',
+        [userId]
+      );
+      const result = rows as any[];
+      return result[0]?.twitter_refresh_token || null;
+    } catch (error: any) {
+      console.error('❌ Error retrieving Twitter refreshToken:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取用户的 Twitter token 过期时间
+   */
+  static async getTwitterTokenExpiresAt(userId: string): Promise<number | null> {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT twitter_token_expires_at FROM users WHERE id = ?',
+        [userId]
+      );
+      const result = rows as any[];
+      return result[0]?.twitter_token_expires_at || null;
+    } catch (error: any) {
+      console.error('❌ Error retrieving Twitter token expiresAt:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * 获取所有用户
    */
   static async findAll(search?: string, verified?: boolean): Promise<User[]> {
@@ -192,8 +226,50 @@ export class UserRepository {
       }
     }
     if ((updates as any).twitterAccessToken !== undefined) {
+      const tokenValue = (updates as any).twitterAccessToken;
       fields.push(`twitter_access_token = ?`);
-      values.push((updates as any).twitterAccessToken || null);
+      values.push(tokenValue || null);
+      
+      // 添加调试日志
+      if (tokenValue) {
+        console.log('💾 Storing Twitter accessToken:', {
+          userId: id,
+          tokenLength: tokenValue.length,
+          tokenPreview: tokenValue.substring(0, 30) + '...',
+        });
+      } else {
+        console.log('🗑️ Clearing Twitter accessToken for user:', id);
+      }
+    }
+
+    if ((updates as any).twitterRefreshToken !== undefined) {
+      const refreshTokenValue = (updates as any).twitterRefreshToken;
+      fields.push(`twitter_refresh_token = ?`);
+      values.push(refreshTokenValue || null);
+      
+      if (refreshTokenValue) {
+        console.log('💾 Storing Twitter refreshToken:', {
+          userId: id,
+          tokenLength: refreshTokenValue.length,
+        });
+      } else {
+        console.log('🗑️ Clearing Twitter refreshToken for user:', id);
+      }
+    }
+
+    if ((updates as any).twitterTokenExpiresAt !== undefined) {
+      const expiresAtValue = (updates as any).twitterTokenExpiresAt;
+      fields.push(`twitter_token_expires_at = ?`);
+      values.push(expiresAtValue || null);
+      
+      if (expiresAtValue) {
+        console.log('💾 Storing Twitter token expiresAt:', {
+          userId: id,
+          expiresAt: new Date(expiresAtValue * 1000).toISOString(),
+        });
+      } else {
+        console.log('🗑️ Clearing Twitter token expiresAt for user:', id);
+      }
     }
 
     if (fields.length === 0) {
@@ -203,10 +279,47 @@ export class UserRepository {
     fields.push(`updated_at = CURRENT_TIMESTAMP`);
     values.push(id);
 
-    await pool.execute(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
-      values
-    );
+    const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
+    console.log('💾 Executing SQL update:', {
+      userId: id,
+      sql: sql.substring(0, 200) + '...',
+      fieldCount: fields.length - 1, // 减去 updated_at
+      hasTwitterToken: fields.some(f => f.includes('twitter_access_token')),
+    });
+    
+    const [result] = await pool.execute(sql, values);
+    const updateResult = result as any;
+    console.log('💾 SQL update result:', {
+      userId: id,
+      affectedRows: updateResult.affectedRows,
+      changedRows: updateResult.changedRows,
+    });
+
+    // 立即验证更新是否成功
+    if ((updates as any).twitterAccessToken !== undefined) {
+      const tokenValue = (updates as any).twitterAccessToken;
+      if (tokenValue) {
+        // 等待一小段时间确保写入完成
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 直接查询数据库验证
+        const [verifyRows] = await pool.execute(
+          'SELECT twitter_access_token FROM users WHERE id = ?',
+          [id]
+        );
+        const verifyResult = verifyRows as any[];
+        const storedToken = verifyResult[0]?.twitter_access_token || null;
+        
+        if (storedToken) {
+          console.log('✅ Verified: Twitter accessToken stored in database');
+          console.log('✅ Stored token length:', storedToken.length);
+        } else {
+          console.error('❌ ERROR: Twitter accessToken NOT found in database after update!');
+          console.error('❌ User ID:', id);
+          console.error('❌ Expected token length:', tokenValue.length);
+        }
+      }
+    }
 
     return this.findById(id);
   }
