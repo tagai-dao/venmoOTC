@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Transaction, Bid, User, OTCState } from '../utils';
+import { Transaction, Bid, User, OTCState, Currency } from '../utils';
 import { useApp } from '../context/AppContext';
 import { Services } from '../services';
-import { X, Check, UserCheck } from 'lucide-react';
+import { X, Check, UserCheck, Loader } from 'lucide-react';
 import { timeAgo } from '../utils';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { MultisigContractService } from '../services/multisigContractService';
 
 interface BidListModalProps {
   transaction: Transaction;
@@ -16,6 +18,9 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
   const [bids, setBids] = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>('');
+
+  const { wallets } = useWallets();
 
   useEffect(() => {
     const fetchBids = async () => {
@@ -31,17 +36,64 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
     fetchBids();
   }, [transaction.id]);
 
-  const handleSelectTrader = async (traderId: string) => {
-    setSelecting(traderId);
+  const handleSelectTrader = async (bid: Bid) => {
+    if (!currentUser || !wallets[0]) {
+      alert('请先连接钱包');
+      return;
+    }
+
+    setSelecting(bid.userId);
     try {
-      await onSelectTrader(traderId);
+      // 1. 获取合约和代币地址 (主网)
+      const MULTISIG_ADDR = "0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6";
+      const USDT_ADDR = "0x55d398326f99059fF775485246999027B3197955";
+
+      // 计算需要存入的 USDT 数量
+      // 如果是 Offer USDT, Request Fiat: amount 是 Offer 数量
+      // 如果是 Offer Fiat, Request USDT: amount 是 Request 数量
+      const usdtAmount = transaction.currency === Currency.USDT 
+        ? transaction.amount.toString()
+        : (transaction as any).otcOfferAmount?.toString();
+
+      if (!usdtAmount) throw new Error("无法确定 USDT 数量");
+
+      setStatus('正在调用合约创建多签订单...');
+      
+      // 2. 调用合约
+      const provider = await wallets[0].getEthereumProvider();
+      const { orderId, txHash } = await MultisigContractService.createOrder(
+        provider,
+        MULTISIG_ADDR,
+        USDT_ADDR,
+        bid.user.walletAddress,
+        usdtAmount
+      );
+
+      setStatus('订单创建成功，正在同步到服务器...');
+
+      // 3. 同步到后端：先更新交易状态（设置 selectedTraderId）
+      await onSelectTrader(bid.userId); // 这一步会将状态改为 SELECTED_TRADER
+      
+      // 4. 记录链上订单（这会更新状态为 USDT_IN_ESCROW）
+      await Services.multisig.recordOrder({
+        transactionId: transaction.id,
+        traderAddress: bid.user.walletAddress,
+        usdtAmount: usdtAmount,
+        onchainOrderId: orderId
+      });
+
+      setStatus('同步成功！');
+      alert(`🎉 成功创建多签订单！\n链上 ID: ${orderId}\n状态已更新为：USDT 已托管`);
+      
+      // 5. 刷新 feed 以显示最新状态（包括 selectedTraderId 和 USDT_IN_ESCROW 状态）
       await refreshFeed();
       onClose();
     } catch (error: any) {
       console.error('Failed to select trader:', error);
-      alert(error?.message || '选择交易者失败，请重试');
+      alert(`操作失败: ${error?.message || '未知错误'}`);
     } finally {
       setSelecting(null);
+      setStatus('');
     }
   };
 
@@ -65,6 +117,13 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
 
         {/* Bids List */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
+          {status && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl text-blue-700 text-sm flex items-center gap-2">
+              <Loader className="w-4 h-4 animate-spin" />
+              {status}
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -99,18 +158,18 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
                       <p className="text-sm text-gray-700 mb-2">{bid.message}</p>
                     )}
                     {currentUser?.id === transaction.fromUser.id && 
-                     transaction.otcState === OTCState.BIDDING && (
+                     (transaction.otcState === OTCState.BIDDING || transaction.otcState === OTCState.OPEN_REQUEST) && (
                       <button
-                        onClick={() => handleSelectTrader(bid.userId)}
-                        disabled={selecting === bid.userId}
+                        onClick={() => handleSelectTrader(bid)}
+                        disabled={selecting !== null}
                         className="w-full mt-2 bg-blue-500 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {selecting === bid.userId ? (
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <Loader className="w-4 h-4 animate-spin" />
                         ) : (
                           <>
                             <Check className="w-4 h-4" />
-                            选择此交易者
+                            选择此交易者并锁定 USDT
                           </>
                         )}
                       </button>

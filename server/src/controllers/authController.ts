@@ -20,6 +20,7 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
     
     // 查找或创建用户
     let user = await UserRepository.findByWalletAddress(walletAddress);
+    const updates: any = {};
     
     if (!user) {
       // 创建新用户
@@ -43,29 +44,46 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
       const userAvatar = avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${walletAddress}`;
       
       try {
-        user = await UserRepository.create({
+        const userData: any = {
           id: userId,
           handle: userHandle,
           name: name || 'User',
           avatar: userAvatar,
           walletAddress,
           isVerified: false,
-          ...(twitterAccessToken && { twitterAccessToken } as any),
-        });
+        };
+
+        if (twitterAccessToken) {
+          userData.twitterAccessToken = twitterAccessToken;
+          userData.twitterRefreshToken = twitterRefreshToken;
+          userData.twitterTokenExpiresAt = Math.floor(Date.now() / 1000) + 7200;
+          updates.twitterAccessToken = twitterAccessToken; // 记录以便后面启动定时器
+        }
+
+        user = await UserRepository.create(userData);
         console.log(`✅ Created new user from Privy: ${user.handle}`);
       } catch (createError: any) {
         // 如果仍然出现重复键错误（并发情况），使用钱包地址生成唯一 handle
         if (createError.code === 'ER_DUP_ENTRY' || createError.errno === 1062 || createError.message?.includes('Duplicate entry')) {
           console.warn(`⚠️ Handle conflict during creation, generating unique handle from wallet address`);
           userHandle = `@user_${walletAddress.slice(2, 12).toLowerCase()}`;
-          user = await UserRepository.create({
+          
+          const fallbackUserData: any = {
             id: userId,
             handle: userHandle,
             name: name || 'User',
             avatar: userAvatar,
             walletAddress,
             isVerified: false,
-          });
+          };
+
+          if (twitterAccessToken) {
+            fallbackUserData.twitterAccessToken = twitterAccessToken;
+            fallbackUserData.twitterRefreshToken = twitterRefreshToken;
+            fallbackUserData.twitterTokenExpiresAt = Math.floor(Date.now() / 1000) + 7200;
+          }
+
+          user = await UserRepository.create(fallbackUserData);
           console.log(`✅ Created new user from Privy with fallback handle: ${user.handle}`);
         } else {
           throw createError;
@@ -73,7 +91,6 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
       }
     } else {
       // 更新用户信息（如果有新的信息）
-      const updates: any = {};
       if (name && name !== user.name) updates.name = name;
       if (avatar && avatar !== user.avatar) updates.avatar = avatar;
       if (handle && handle !== user.handle) {
@@ -95,6 +112,8 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
     if (twitterAccessToken !== undefined) {
       if (twitterAccessToken && twitterAccessToken.trim() !== '') {
         updates.twitterAccessToken = twitterAccessToken;
+        updates.twitterRefreshToken = twitterRefreshToken;
+        updates.twitterTokenExpiresAt = Math.floor(Date.now() / 1000) + 7200;
         console.log('📝 Twitter accessToken provided, will be stored/updated');
         console.log('🔑 AccessToken (first 30 chars):', twitterAccessToken.substring(0, 30) + '...');
         console.log('🔑 AccessToken length:', twitterAccessToken.length);
@@ -102,6 +121,8 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
       } else {
         // 传递空字符串或 null，清除 accessToken
         updates.twitterAccessToken = null;
+        updates.twitterRefreshToken = null;
+        updates.twitterTokenExpiresAt = null;
         console.log('📝 Clearing Twitter accessToken');
       }
     }

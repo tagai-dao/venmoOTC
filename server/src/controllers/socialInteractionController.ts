@@ -2,8 +2,9 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import { SocialInteractionRepository } from '../db/repositories/socialInteractionRepository.js';
 import { TransactionRepository } from '../db/repositories/transactionRepository.js';
+import { UserRepository } from '../db/repositories/userRepository.js';
 import { Privacy } from '../types.js';
-import { Services as SocialServices } from '../services/socialService.js';
+import { TwitterService } from '../services/twitterService.js';
 
 /**
  * 点赞/取消点赞交易
@@ -109,14 +110,35 @@ export const addComment = async (req: AuthRequest, res: Response) => {
     let xCommentId: string | undefined;
     if (transaction.privacy === Privacy.PUBLIC_X && transaction.xPostId) {
       try {
-        // 模拟回复推文（实际应该调用 X API）
-        xCommentId = await SocialServices.replyToTweet(transaction.xPostId, text);
-        if (xCommentId) {
-          await SocialInteractionRepository.updateCommentXId(commentId, xCommentId);
+        // 获取评论用户的 Twitter accessToken
+        const commentUserAccessToken = await UserRepository.getTwitterAccessToken(userId);
+        
+        if (!commentUserAccessToken) {
+          console.warn(`⚠️ User ${userId} does not have Twitter accessToken. Comment will not be posted to X.`);
+        } else {
+          console.log(`🐦 Posting comment to X for transaction ${transactionId}...`);
+          // 调用真实的 Twitter API 回复推文
+          const replyResult = await TwitterService.replyToTweet(
+            transaction.xPostId,
+            text,
+            commentUserAccessToken
+          );
+          
+          if (replyResult && replyResult.replyId) {
+            xCommentId = replyResult.replyId;
+            await SocialInteractionRepository.updateCommentXId(commentId, xCommentId);
+            console.log(`✅ Comment posted to X successfully! Reply ID: ${xCommentId}`);
+          }
         }
-      } catch (error) {
-        console.error('Failed to sync comment to X:', error);
+      } catch (error: any) {
+        console.error('❌ Failed to sync comment to X:', error);
+        console.error('Error details:', {
+          message: error.message,
+          status: error.response?.status,
+          data: error.response?.data
+        });
         // 不阻止评论操作，即使 X 同步失败
+        // 但记录错误以便后续排查
       }
     }
 

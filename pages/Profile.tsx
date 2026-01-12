@@ -174,23 +174,13 @@ const ProfileWithPrivy: React.FC<{
     },
   });
   
-  // 监听登录状态，检查是否获取到 accessToken
+  // 监听登录状态，仅在调试时记录，不再弹出误导性的 alert
   useEffect(() => {
     if (authenticated && privyUser) {
-      console.log('🔍 用户已登录，检查是否有 Twitter accessToken...');
-      console.log('🔍 Privy User:', {
-        id: privyUser.id,
-        hasTwitter: !!privyUser.twitter,
-        twitterUsername: privyUser.twitter?.username,
-      });
-      
-      // 注意：Privy 的 user 对象不包含 accessToken
-      // accessToken 只能通过 useOAuthTokens 回调获取
-      // 如果没有通过回调获取到，说明回调可能没有触发
+      console.log('🔍 用户已登录，检查 Twitter 状态...');
       if (!displayedAccessToken && !pendingTwitterAccessToken && privyUser.twitter) {
-        console.warn('⚠️ 用户已通过 Twitter 登录，但未获取到 accessToken');
-        console.warn('⚠️ useOAuthTokens 回调可能未触发');
-        alert('⚠️ Twitter 登录成功，但未获取到 Access Token\n\n可能的原因：\n1. Privy Dashboard 中未启用 "Return OAuth tokens"\n2. useOAuthTokens 回调未触发\n3. 请检查浏览器控制台日志\n\n请查看控制台获取更多信息。');
+        console.log('ℹ️ 当前前端会话未持有 accessToken，但后端可能已存储（发帖成功即可证明）。');
+        // 不再 alert，因为这在刷新页面后是正常现象
       }
     }
   }, [authenticated, privyUser, displayedAccessToken, pendingTwitterAccessToken]);

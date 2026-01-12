@@ -23,6 +23,7 @@ export const initDatabase = async (): Promise<void> => {
         join(__dirname, 'migrations', '008_add_multisig_signatures.sql'),
         join(__dirname, 'migrations', '009_add_twitter_access_token.sql'),
         join(__dirname, 'migrations', '010_add_twitter_refresh_token.sql'),
+        join(__dirname, 'migrations', '011_add_multisig_order_id.sql'),
       ];
 
       for (const migrationPath of migrationPaths) {

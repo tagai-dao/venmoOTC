@@ -1,6 +1,14 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { Buffer } from 'buffer';
 import App from './App';
+
+// Polyfill Buffer for Privy and other blockchain libs
+if (typeof window !== 'undefined') {
+  window.Buffer = Buffer;
+  // @ts-ignore
+  window.global = window;
+}
 
 // Error Boundary 组件
 class ErrorBoundary extends React.Component<

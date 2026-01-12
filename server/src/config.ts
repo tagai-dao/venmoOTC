@@ -29,6 +29,7 @@ export const config = {
   blockchain: {
     bnbChainRpcUrl: process.env.BNB_CHAIN_RPC_URL || 'https://bsc-dataseed.binance.org/',
     usdtContractAddress: process.env.USDT_CONTRACT_ADDRESS || '0x55d398326f99059fF775485246999027B3197955',
+    multisigContractAddress: process.env.MULTISIG_CONTRACT_ADDRESS || '0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6',
     chainId: 56,
     privateKey: process.env.PRIVATE_KEY || '',
   },

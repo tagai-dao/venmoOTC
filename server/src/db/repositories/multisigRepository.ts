@@ -10,13 +10,16 @@ export interface MultisigContract {
   requesterAddress: string;
   traderAddress: string;
   usdtAmount: number;
+  onchainOrderId?: number;
+  initiatorChoice: number;
+  counterpartyChoice: number;
+  initiatorSigned: boolean;
+  counterpartySigned: boolean;
+  status: string;
+  paymentProofUrl?: string;
   isActivated: boolean;
   activatedAt?: Date;
   createdAt: Date;
-  traderSigned: boolean;
-  requesterSigned: boolean;
-  traderSignedAt?: Date;
-  requesterSignedAt?: Date;
 }
 
 export class MultisigRepository {
@@ -31,13 +34,16 @@ export class MultisigRepository {
       requesterAddress: row.requester_address,
       traderAddress: row.trader_address,
       usdtAmount: parseFloat(row.usdt_amount),
-      isActivated: row.is_activated === 1,
+      onchainOrderId: row.onchain_order_id,
+      initiatorChoice: row.initiator_choice || 0,
+      counterpartyChoice: row.counterparty_choice || 0,
+      initiatorSigned: Boolean(row.initiator_signed),
+      counterpartySigned: Boolean(row.counterparty_signed),
+      status: row.status || 'OPEN',
+      paymentProofUrl: row.payment_proof_url,
+      isActivated: Boolean(row.is_activated),
       activatedAt: row.activated_at || undefined,
       createdAt: row.created_at,
-      traderSigned: (row.trader_signed === 1) || (row.trader_signed === true) || false,
-      requesterSigned: (row.requester_signed === 1) || (row.requester_signed === true) || false,
-      traderSignedAt: row.trader_signed_at || undefined,
-      requesterSignedAt: row.requester_signed_at || undefined,
     };
   }
 
@@ -49,18 +55,20 @@ export class MultisigRepository {
     contractAddress: string,
     requesterAddress: string,
     traderAddress: string,
-    usdtAmount: number
+    usdtAmount: number,
+    onchainOrderId?: number
   ): Promise<MultisigContract> {
     const id = `multisig_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     await pool.execute(
-      `INSERT INTO multisig_contracts (id, transaction_id, contract_address, requester_address, trader_address, usdt_amount)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, transactionId, contractAddress, requesterAddress, traderAddress, usdtAmount]
+      `INSERT INTO multisig_contracts 
+       (id, transaction_id, contract_address, requester_address, trader_address, usdt_amount, onchain_order_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, transactionId, contractAddress, requesterAddress, traderAddress, usdtAmount, onchainOrderId || null, 'OPEN']
     );
 
-    const [rows] = await pool.execute('SELECT * FROM multisig_contracts WHERE id = ?', [id]);
-    return this.rowToMultisig((rows as any[])[0]);
+    const multisig = await this.findByTransactionId(transactionId);
+    return multisig!;
   }
 
   /**
@@ -79,136 +87,68 @@ export class MultisigRepository {
   }
 
   /**
-   * 激活多签合约（释放 USDT）
+   * 更新多签记录
    */
-  static async activate(transactionId: string): Promise<boolean> {
-    const [result] = await pool.execute(
-      'UPDATE multisig_contracts SET is_activated = 1, activated_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND is_activated = 0',
-      [transactionId]
+  static async update(transactionId: string, updates: Partial<MultisigContract>): Promise<void> {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.onchainOrderId !== undefined) {
+      fields.push('onchain_order_id = ?');
+      values.push(updates.onchainOrderId);
+    }
+    if (updates.initiatorChoice !== undefined) {
+      fields.push('initiator_choice = ?');
+      values.push(updates.initiatorChoice);
+    }
+    if (updates.counterpartyChoice !== undefined) {
+      fields.push('counterparty_choice = ?');
+      values.push(updates.counterpartyChoice);
+    }
+    if (updates.initiatorSigned !== undefined) {
+      fields.push('initiator_signed = ?');
+      values.push(updates.initiatorSigned ? 1 : 0);
+    }
+    if (updates.counterpartySigned !== undefined) {
+      fields.push('counterparty_signed = ?');
+      values.push(updates.counterpartySigned ? 1 : 0);
+    }
+    if (updates.status !== undefined) {
+      fields.push('status = ?');
+      values.push(updates.status);
+    }
+    if (updates.paymentProofUrl !== undefined) {
+      fields.push('payment_proof_url = ?');
+      values.push(updates.paymentProofUrl);
+    }
+    if (updates.isActivated !== undefined) {
+      fields.push('is_activated = ?');
+      values.push(updates.isActivated ? 1 : 0);
+      if (updates.isActivated) {
+        fields.push('activated_at = CURRENT_TIMESTAMP');
+      }
+    }
+
+    if (fields.length === 0) return;
+
+    values.push(transactionId);
+    await pool.execute(
+      `UPDATE multisig_contracts SET ${fields.join(', ')} WHERE transaction_id = ?`,
+      values
     );
-    return (result as any).affectedRows > 0;
   }
 
   /**
-   * 检查多签合约是否已激活
+   * 判断是否已经达成一致并可以执行
    */
-  static async isActivated(transactionId: string): Promise<boolean> {
-    const [rows] = await pool.execute(
-      'SELECT is_activated FROM multisig_contracts WHERE transaction_id = ?',
-      [transactionId]
+  static async isAgreed(transactionId: string): Promise<boolean> {
+    const ms = await this.findByTransactionId(transactionId);
+    if (!ms) return false;
+    return (
+      ms.initiatorSigned &&
+      ms.counterpartySigned &&
+      ms.initiatorChoice !== 0 &&
+      ms.initiatorChoice === ms.counterpartyChoice
     );
-    const result = rows as any[];
-    if (result.length === 0) {
-      return false;
-    }
-    return result[0].is_activated === 1;
-  }
-
-  /**
-   * 交易者签名多签合约
-   */
-  static async signByTrader(transactionId: string): Promise<boolean> {
-    try {
-      const [result] = await pool.execute(
-        'UPDATE multisig_contracts SET trader_signed = 1, trader_signed_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND (trader_signed = 0 OR trader_signed IS NULL)',
-        [transactionId]
-      );
-      return (result as any).affectedRows > 0;
-    } catch (error: any) {
-      // 如果字段不存在，先尝试添加字段
-      if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 1054) {
-        console.warn('Multisig signature fields not found, attempting to add them...');
-        try {
-          await pool.execute(
-            'ALTER TABLE multisig_contracts ADD COLUMN trader_signed TINYINT(1) DEFAULT 0, ADD COLUMN requester_signed TINYINT(1) DEFAULT 0, ADD COLUMN trader_signed_at TIMESTAMP NULL, ADD COLUMN requester_signed_at TIMESTAMP NULL'
-          );
-          // 重试签名
-          const [result] = await pool.execute(
-            'UPDATE multisig_contracts SET trader_signed = 1, trader_signed_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND (trader_signed = 0 OR trader_signed IS NULL)',
-            [transactionId]
-          );
-          return (result as any).affectedRows > 0;
-        } catch (alterError: any) {
-          if (alterError.code === 'ER_DUP_FIELDNAME' || alterError.code === 1060) {
-            // 字段已存在，重试更新
-            const [result] = await pool.execute(
-              'UPDATE multisig_contracts SET trader_signed = 1, trader_signed_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND (trader_signed = 0 OR trader_signed IS NULL)',
-              [transactionId]
-            );
-            return (result as any).affectedRows > 0;
-          }
-          throw alterError;
-        }
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * 请求者签名多签合约
-   */
-  static async signByRequester(transactionId: string): Promise<boolean> {
-    try {
-      const [result] = await pool.execute(
-        'UPDATE multisig_contracts SET requester_signed = 1, requester_signed_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND (requester_signed = 0 OR requester_signed IS NULL)',
-        [transactionId]
-      );
-      return (result as any).affectedRows > 0;
-    } catch (error: any) {
-      // 如果字段不存在，先尝试添加字段
-      if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 1054) {
-        console.warn('Multisig signature fields not found, attempting to add them...');
-        try {
-          await pool.execute(
-            'ALTER TABLE multisig_contracts ADD COLUMN trader_signed TINYINT(1) DEFAULT 0, ADD COLUMN requester_signed TINYINT(1) DEFAULT 0, ADD COLUMN trader_signed_at TIMESTAMP NULL, ADD COLUMN requester_signed_at TIMESTAMP NULL'
-          );
-          // 重试签名
-          const [result] = await pool.execute(
-            'UPDATE multisig_contracts SET requester_signed = 1, requester_signed_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND (requester_signed = 0 OR requester_signed IS NULL)',
-            [transactionId]
-          );
-          return (result as any).affectedRows > 0;
-        } catch (alterError: any) {
-          if (alterError.code === 'ER_DUP_FIELDNAME' || alterError.code === 1060) {
-            // 字段已存在，重试更新
-            const [result] = await pool.execute(
-              'UPDATE multisig_contracts SET requester_signed = 1, requester_signed_at = CURRENT_TIMESTAMP WHERE transaction_id = ? AND (requester_signed = 0 OR requester_signed IS NULL)',
-              [transactionId]
-            );
-            return (result as any).affectedRows > 0;
-          }
-          throw alterError;
-        }
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * 检查是否两个签名都已完成
-   */
-  static async areBothSigned(transactionId: string): Promise<boolean> {
-    try {
-      const [rows] = await pool.execute(
-        'SELECT trader_signed, requester_signed FROM multisig_contracts WHERE transaction_id = ?',
-        [transactionId]
-      );
-      const result = rows as any[];
-      if (result.length === 0) {
-        return false;
-      }
-      const row = result[0];
-      // 处理字段可能为 null 或不存在的情况
-      const traderSigned = row.trader_signed === 1 || row.trader_signed === true;
-      const requesterSigned = row.requester_signed === 1 || row.requester_signed === true;
-      return traderSigned && requesterSigned;
-    } catch (error: any) {
-      // 如果字段不存在，返回 false
-      if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 1054) {
-        console.warn('Multisig signature fields not found, returning false');
-        return false;
-      }
-      throw error;
-    }
   }
 }

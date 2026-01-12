@@ -354,15 +354,13 @@ export const Services = {
     // --- 8. Bids Service ---
     bids: {
         createBid: async (transactionId: string, message?: string): Promise<{ bid: any }> => {
-            const response = await apiRequest<{ bid: any }>(`/api/bids/${transactionId}`, {
+            return await apiRequest<{ bid: any }>(`/api/bids/${transactionId}`, {
                 method: 'POST',
                 body: JSON.stringify({ message }),
             });
-            return response;
         },
         getBids: async (transactionId: string): Promise<{ bids: any[] }> => {
-            const response = await apiRequest<{ bids: any[] }>(`/api/bids/${transactionId}`);
-            return response;
+            return await apiRequest<{ bids: any[] }>(`/api/bids/${transactionId}`);
         },
         deleteBid: async (bidId: string): Promise<void> => {
             await apiRequest(`/api/bids/${bidId}`, {
@@ -373,43 +371,22 @@ export const Services = {
 
     // --- 9. Multisig Service ---
     multisig: {
-        createContract: async (transactionId: string, traderAddress: string, usdtAmount: number): Promise<{ multisig: any; message: string }> => {
-            const response = await apiRequest<{ multisig: any; message: string }>('/api/multisig/create', {
+        recordOrder: async (data: { transactionId: string, traderAddress: string, usdtAmount: string, onchainOrderId: string }): Promise<{ multisig: any }> => {
+            const response = await apiRequest<{ multisig: any }>('/api/multisig/record-order', {
                 method: 'POST',
-                body: JSON.stringify({ transactionId, traderAddress, usdtAmount }),
+                body: JSON.stringify(data),
             });
             return response;
         },
-        sendUSDTToMultisig: async (transactionId: string): Promise<{ txHash: string; contractAddress: string; message: string }> => {
-            const response = await apiRequest<{ txHash: string; contractAddress: string; message: string }>('/api/multisig/send-usdt', {
+        recordSignature: async (data: { transactionId: string, choice: number, paymentProofUrl?: string }): Promise<{ message: string, isAgreed: boolean }> => {
+            const response = await apiRequest<{ message: string, isAgreed: boolean }>('/api/multisig/record-signature', {
                 method: 'POST',
-                body: JSON.stringify({ transactionId }),
+                body: JSON.stringify(data),
             });
             return response;
         },
-        activateMultisig: async (transactionId: string): Promise<{ txHash: string; message: string }> => {
-            const response = await apiRequest<{ txHash: string; message: string }>('/api/multisig/activate', {
-                method: 'POST',
-                body: JSON.stringify({ transactionId }),
-            });
-            return response;
-        },
-        getMultisig: async (transactionId: string): Promise<{ multisig: any }> => {
+        getMultisigInfo: async (transactionId: string): Promise<{ multisig: any }> => {
             const response = await apiRequest<{ multisig: any }>(`/api/multisig/${transactionId}`);
-            return response;
-        },
-        signByTrader: async (transactionId: string): Promise<{ message: string }> => {
-            const response = await apiRequest<{ message: string }>('/api/multisig/sign-trader', {
-                method: 'POST',
-                body: JSON.stringify({ transactionId }),
-            });
-            return response;
-        },
-        signByRequester: async (transactionId: string): Promise<{ txHash?: string; message: string }> => {
-            const response = await apiRequest<{ txHash?: string; message: string }>('/api/multisig/sign-requester', {
-                method: 'POST',
-                body: JSON.stringify({ transactionId }),
-            });
             return response;
         },
     },

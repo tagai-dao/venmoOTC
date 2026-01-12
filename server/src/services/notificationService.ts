@@ -142,4 +142,80 @@ export class NotificationService {
       console.error('Failed to send payment received notification:', error);
     }
   }
+
+  /**
+   * 通知：USDT 已存入多签合约
+   * 当 Request 发起者将 USDT 存入多签合约后，通知被选中的交易者
+   */
+  static async notifyUSDTInEscrow(transaction: Transaction): Promise<void> {
+    try {
+      // 只处理 REQUEST 类型且有选中交易者的 OTC 交易
+      if (transaction.type !== TransactionType.REQUEST || !transaction.isOTC || !transaction.selectedTraderId) {
+        return;
+      }
+
+      // 获取被选中的交易者信息
+      const selectedTrader = await UserRepository.findById(transaction.selectedTraderId);
+      if (!selectedTrader) {
+        console.error(`Selected trader not found: ${transaction.selectedTraderId}`);
+        return;
+      }
+
+      const fromUser = transaction.fromUser;
+      const title = 'USDT 已多签支付，请进行法币支付';
+      const message = `${fromUser.name} (${fromUser.handle}) 已将 ${transaction.amount} ${transaction.currency} 存入多签合约。请进行法币支付并上传凭证，然后对多签交易进行签名。`;
+
+      await NotificationRepository.create({
+        userId: selectedTrader.id,
+        type: NotificationType.REQUEST_STATE_CHANGED,
+        title,
+        message,
+        transactionId: transaction.id,
+        relatedUserId: fromUser.id,
+        isRead: false,
+      });
+
+      console.log(`📬 Notification sent: USDT in escrow to selected trader ${selectedTrader.handle}`);
+    } catch (error) {
+      console.error('Failed to send USDT in escrow notification:', error);
+    }
+  }
+
+  /**
+   * 通知：发起者申请退回资产
+   * 当 Request 发起者申请退回资产（两次未收到法币）后，通知交易者
+   */
+  static async notifyRefundRequested(transaction: Transaction): Promise<void> {
+    try {
+      // 只处理 REQUEST 类型且有选中交易者的 OTC 交易
+      if (transaction.type !== TransactionType.REQUEST || !transaction.isOTC || !transaction.selectedTraderId) {
+        return;
+      }
+
+      // 获取被选中的交易者信息
+      const selectedTrader = await UserRepository.findById(transaction.selectedTraderId);
+      if (!selectedTrader) {
+        console.error(`Selected trader not found: ${transaction.selectedTraderId}`);
+        return;
+      }
+
+      const fromUser = transaction.fromUser;
+      const title = '发起者申请退回资产';
+      const message = `${fromUser.name} (${fromUser.handle}) 已两次声称未收到法币，已发起资产退回请求。请同意签名以完成退款，USDT 将返回到发起者账户。`;
+
+      await NotificationRepository.create({
+        userId: selectedTrader.id,
+        type: NotificationType.REQUEST_STATE_CHANGED,
+        title,
+        message,
+        transactionId: transaction.id,
+        relatedUserId: fromUser.id,
+        isRead: false,
+      });
+
+      console.log(`📬 Notification sent: Refund requested to selected trader ${selectedTrader.handle}`);
+    } catch (error) {
+      console.error('Failed to send refund requested notification:', error);
+    }
+  }
 }

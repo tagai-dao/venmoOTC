@@ -90,6 +90,79 @@ async function startServer() {
     // 2. 初始化数据库表结构
     console.log('📊 Initializing database schema...');
     await initDatabase();
+
+    // 强制执行 Twitter token 相关的迁移（防止自动迁移跳过）
+    try {
+      const { pool } = await import('./db/config.js');
+      console.log('🔄 Verifying Twitter token columns...');
+      
+      const [columns] = await pool.execute('SHOW COLUMNS FROM users');
+      const columnNames = (columns as any[]).map(c => c.Field);
+      
+      if (!columnNames.includes('twitter_access_token')) {
+        console.log('➕ Adding twitter_access_token column...');
+        await pool.execute('ALTER TABLE users ADD COLUMN twitter_access_token TEXT');
+      }
+      
+      if (!columnNames.includes('twitter_refresh_token')) {
+        console.log('➕ Adding twitter_refresh_token column...');
+        await pool.execute('ALTER TABLE users ADD COLUMN twitter_refresh_token TEXT');
+      }
+      
+      if (!columnNames.includes('twitter_token_expires_at')) {
+        console.log('➕ Adding twitter_token_expires_at column...');
+        await pool.execute('ALTER TABLE users ADD COLUMN twitter_token_expires_at BIGINT');
+      }
+
+      // 验证 multisig_contracts 表的字段
+      const [msColumns] = await pool.execute('SHOW COLUMNS FROM multisig_contracts');
+      const msColumnNames = (msColumns as any[]).map(c => c.Field);
+
+      if (!msColumnNames.includes('onchain_order_id')) {
+        console.log('➕ Adding onchain_order_id column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN onchain_order_id BIGINT NULL');
+      }
+      
+      if (!msColumnNames.includes('initiator_choice')) {
+        console.log('➕ Adding initiator_choice column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN initiator_choice INT DEFAULT 0');
+      }
+      
+      if (!msColumnNames.includes('counterparty_choice')) {
+        console.log('➕ Adding counterparty_choice column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN counterparty_choice INT DEFAULT 0');
+      }
+      
+      if (!msColumnNames.includes('initiator_signed')) {
+        console.log('➕ Adding initiator_signed column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN initiator_signed TINYINT(1) DEFAULT 0');
+      }
+      
+      if (!msColumnNames.includes('counterparty_signed')) {
+        console.log('➕ Adding counterparty_signed column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN counterparty_signed TINYINT(1) DEFAULT 0');
+      }
+
+      if (!msColumnNames.includes('payment_proof_url')) {
+        console.log('➕ Adding payment_proof_url column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN payment_proof_url TEXT NULL');
+      }
+
+      if (!msColumnNames.includes('status')) {
+        console.log('➕ Adding status column to multisig_contracts...');
+        await pool.execute('ALTER TABLE multisig_contracts ADD COLUMN status VARCHAR(20) DEFAULT "OPEN"');
+      }
+
+      // 验证 transactions 表的字段
+      if (!columnNames.includes('payment_proof_url')) {
+        console.log('➕ Adding payment_proof_url column to transactions...');
+        await pool.execute('ALTER TABLE transactions ADD COLUMN payment_proof_url TEXT NULL');
+      }
+      
+      console.log('✅ All multisig columns verified');
+    } catch (dbErr: any) {
+      console.warn('⚠️ Manual column verification warning:', dbErr.message);
+    }
     
     // 3. 导入种子数据（仅在开发环境或数据库为空时）
     if (config.nodeEnv === 'development') {

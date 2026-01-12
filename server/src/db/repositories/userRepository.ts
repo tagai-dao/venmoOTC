@@ -165,8 +165,8 @@ export class UserRepository {
     const id = user.id || `u${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
     await pool.execute(
-      `INSERT INTO users (id, handle, name, avatar, wallet_address, is_verified, bank_name, account_number, account_name, twitter_access_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, handle, name, avatar, wallet_address, is_verified, bank_name, account_number, account_name, twitter_access_token, twitter_refresh_token, twitter_token_expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         user.handle,
@@ -178,6 +178,8 @@ export class UserRepository {
         user.fiatDetails?.accountNumber || null,
         user.fiatDetails?.accountName || null,
         (user as any).twitterAccessToken || null,
+        (user as any).twitterRefreshToken || null,
+        (user as any).twitterTokenExpiresAt || null,
       ]
     );
     

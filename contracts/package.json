@@ -1,6 +1,7 @@
 {
   "name": "venmo-otc-contracts",
   "version": "1.0.0",
+  "type": "module",
   "description": "Hardhat tests for Venmo OTC Multisig",
   "main": "index.js",
   "scripts": {
@@ -11,10 +12,13 @@
     "@nomicfoundation/hardhat-ethers": "^3.0.0",
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "@openzeppelin/contracts": "^5.0.0",
+    "chai": "^4.3.0",
     "ethers": "^6.0.0",
     "hardhat": "^2.19.0",
     "ts-node": "^10.9.0",
-    "typescript": "^5.0.0",
-    "chai": "^4.3.0"
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3"
   }
 }

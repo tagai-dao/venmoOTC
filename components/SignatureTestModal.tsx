@@ -12,7 +12,7 @@ const hasPrivy = !!import.meta.env.VITE_PRIVY_APP_ID;
 
 // 内部组件：只有在 PrivyProvider 存在时才调用 usePrivy
 const SignatureTestModalWithPrivy: React.FC<SignatureTestModalProps> = (props) => {
-  const { ready, authenticated, getEthersProvider } = usePrivy();
+  const { ready, authenticated, getEthersProvider, signMessage } = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
   
   // 调试日志
@@ -22,10 +22,9 @@ const SignatureTestModalWithPrivy: React.FC<SignatureTestModalProps> = (props) =
       authenticated,
       walletsReady,
       walletsCount: wallets?.length || 0,
-      hasGetEthersProvider: !!getEthersProvider,
-      isFunction: typeof getEthersProvider === 'function'
+      hasSignMessage: !!signMessage
     });
-  }, [ready, authenticated, walletsReady, wallets, getEthersProvider]);
+  }, [ready, authenticated, walletsReady, wallets, signMessage]);
   
   return (
     <SignatureTestModalContent
@@ -33,6 +32,7 @@ const SignatureTestModalWithPrivy: React.FC<SignatureTestModalProps> = (props) =
       ready={ready && walletsReady}
       authenticated={authenticated}
       getEthersProvider={getEthersProvider}
+      signMessage={signMessage}
       wallets={wallets}
     />
   );
@@ -55,6 +55,7 @@ interface ModalContentProps extends SignatureTestModalProps {
   ready: boolean;
   authenticated: boolean;
   getEthersProvider?: () => Promise<any>;
+  signMessage?: (message: string) => Promise<string>;
   wallets?: any[];
 }
 
@@ -63,6 +64,7 @@ const SignatureTestModalContent: React.FC<ModalContentProps> = ({
   ready, 
   authenticated, 
   getEthersProvider,
+  signMessage,
   wallets = []
 }) => {
   const [textToSign, setTextToSign] = useState('Hello, this is a test message for wallet signature.');
@@ -73,12 +75,12 @@ const SignatureTestModalContent: React.FC<ModalContentProps> = ({
   const [copied, setCopied] = useState(false);
   
   // 使用 ref 存储最新的 Privy 状态
-  const privyStateRef = useRef({ ready, authenticated, getEthersProvider, wallets });
+  const privyStateRef = useRef({ ready, authenticated, getEthersProvider, signMessage, wallets });
   const [providerReady, setProviderReady] = useState(false);
   
   // 当 Privy 状态改变时，更新 ref
   useEffect(() => {
-    privyStateRef.current = { ready, authenticated, getEthersProvider, wallets };
+    privyStateRef.current = { ready, authenticated, getEthersProvider, signMessage, wallets };
     
     // 检查 provider 是否可用：方法1 使用 getEthersProvider，方法2 使用 wallets
     const hasGetEthersProvider = getEthersProvider && typeof getEthersProvider === 'function';
@@ -136,7 +138,10 @@ const SignatureTestModalContent: React.FC<ModalContentProps> = ({
   }, [ready, authenticated, wallets]); // 添加 wallets 依赖
 
   const handleSign = async () => {
-    if (!textToSign.trim()) {
+    // 立即锁定当前要签名的文本，避免状态抖动
+    const messageToSign = String(textToSign).trim();
+    
+    if (!messageToSign) {
       setError('请输入要签名的文本');
       return;
     }
@@ -147,84 +152,49 @@ const SignatureTestModalContent: React.FC<ModalContentProps> = ({
     setSignerAddress(null);
 
     try {
-      // 方法1: 尝试使用 getEthersProvider（如果可用）
-      let provider: any = null;
       const currentState = privyStateRef.current;
       
-      if (currentState.getEthersProvider && typeof currentState.getEthersProvider === 'function') {
-        try {
-          provider = await currentState.getEthersProvider();
-          if (provider) {
-            console.log('✅ 使用 getEthersProvider 获取 provider');
-          }
-        } catch (err) {
-          console.warn('⚠️ getEthersProvider 失败，尝试备用方法...', err);
-        }
-      }
+      // 1. 获取钱包对象
+      const wallet = currentState.wallets.find((w: any) => w.walletClientType === 'privy') || currentState.wallets[0];
       
-      // 方法2: 如果 getEthersProvider 不可用，使用 wallets 获取 provider（Privy v3 推荐方法）
-      if (!provider && currentState.wallets && currentState.wallets.length > 0) {
-        console.log('📝 尝试从 wallets 获取 provider...', {
-          walletsCount: currentState.wallets.length,
-          walletTypes: currentState.wallets.map((w: any) => w.walletClientType)
-        });
-        
-        // 优先使用 privy 嵌入钱包
-        const embeddedWallet = currentState.wallets.find((w: any) => w.walletClientType === 'privy') || currentState.wallets[0];
-        
-        if (embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function') {
-          try {
-            console.log('🔍 调用 wallet.getEthereumProvider()...');
-            const ethereumProvider = await embeddedWallet.getEthereumProvider();
-            if (ethereumProvider) {
-              // 使用 ethers v6 的 BrowserProvider
-              provider = new ethers.BrowserProvider(ethereumProvider);
-              console.log('✅ 使用 wallets.getEthereumProvider 获取 provider');
-            }
-          } catch (err: any) {
-            console.error('❌ 从 wallets 获取 provider 失败:', err);
-            console.error('错误详情:', {
-              message: err.message,
-              code: err.code,
-              stack: err.stack
-            });
-          }
-        } else {
-          console.warn('⚠️ 钱包对象不包含 getEthereumProvider 方法:', {
-            hasEmbeddedWallet: !!embeddedWallet,
-            hasGetEthereumProvider: embeddedWallet && typeof embeddedWallet.getEthereumProvider === 'function',
-            walletClientType: embeddedWallet?.walletClientType
-          });
-        }
-      }
-      
-      // 如果两种方法都失败，抛出错误
-      if (!provider) {
-        console.error('❌ 无法获取 provider，最终状态:', {
-          ready: currentState.ready,
-          authenticated: currentState.authenticated,
-          hasGetEthersProvider: !!currentState.getEthersProvider,
-          walletsCount: currentState.wallets?.length || 0,
-          wallets: currentState.wallets?.map((w: any) => ({ 
-            address: w.address, 
-            walletClientType: w.walletClientType,
-            hasGetEthereumProvider: typeof w.getEthereumProvider === 'function'
-          }))
-        });
-        throw new Error('无法获取钱包连接。请确保钱包已连接并已创建嵌入钱包。如果问题持续，请刷新页面后重试。');
+      if (!wallet) {
+        throw new Error('无法获取钱包连接。请确保钱包已连接。');
       }
 
-      // 获取 signer
-      const signer = await provider.getSigner();
-      const address = await signer.getAddress();
+      const address = wallet.address;
       setSignerAddress(address);
+      
+      // 2. 将消息转换为十六进制 (符合 personal_sign 标准)
+      const hexMsg = ethers.hexlify(ethers.toUtf8Bytes(messageToSign));
+      console.log('📝 准备签名:', { message: messageToSign, hexMsg, address });
 
-      console.log('📝 准备签名文本:', textToSign);
-      console.log('💼 签名者地址:', address);
-
-      // 使用 ethers 的 signMessage 方法签名文本
-      // 这会弹出钱包确认框
-      const signedMessage = await signer.signMessage(textToSign);
+      // 3. 签名逻辑：优先使用最原始的 Provider Request 方式 (兼容性最高)
+      let signedMessage: string;
+      
+      try {
+        console.log('🔍 获取底层 Provider...');
+        const ethereumProvider = await wallet.getEthereumProvider();
+        
+        console.log('🔍 发送原始 personal_sign 请求...');
+        // 某些 Provider 期望第一个参数是消息，有些是第二个，但 personal_sign 标准是 [msg, addr]
+        signedMessage = await ethereumProvider.request({
+          method: 'personal_sign',
+          params: [hexMsg, address]
+        });
+      } catch (providerError: any) {
+        console.warn('⚠️ 原始 Provider 请求失败，尝试使用 SDK/Ethers 降级方案:', providerError);
+        
+        if (typeof currentState.signMessage === 'function') {
+          console.log('🔍 尝试使用 usePrivy().signMessage...');
+          signedMessage = await currentState.signMessage(messageToSign);
+        } else {
+          console.log('🔍 尝试使用 ethers Signer...');
+          const ethProvider = await wallet.getEthereumProvider();
+          const provider = new ethers.BrowserProvider(ethProvider);
+          const signer = await provider.getSigner();
+          signedMessage = await signer.signMessage(messageToSign);
+        }
+      }
       
       console.log('✅ 签名成功:', signedMessage);
       setSignature(signedMessage);
@@ -234,12 +204,10 @@ const SignatureTestModalContent: React.FC<ModalContentProps> = ({
       // 提供更友好的错误信息
       if (err.code === 'ACTION_REJECTED' || err.message?.includes('rejected') || err.message?.includes('User rejected')) {
         setError('签名被用户取消');
-      } else if (err.code === 'INSUFFICIENT_FUNDS') {
-        setError('余额不足（虽然签名不需要费用，但钱包可能有问题）');
-      } else if (err.message) {
-        setError(err.message);
+      } else if (err.message?.includes('non-empty string')) {
+        setError('签名错误：消息不能为空。提示：请尝试刷新页面并重新登录。');
       } else {
-        setError('签名失败: ' + String(err));
+        setError(err.message || '签名失败: ' + String(err));
       }
     } finally {
       setIsSigning(false);
