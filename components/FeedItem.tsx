@@ -32,9 +32,27 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   const [showReplyDetail, setShowReplyDetail] = useState(false);
   const [showBidList, setShowBidList] = useState(false);
   const [multisigInfo, setMultisigInfo] = useState<any>(null);
+  const [traderUser, setTraderUser] = useState<User | null>(null);
 
   const isMe = currentUser ? transaction.fromUser.id === currentUser.id : false;
   const isToMe = currentUser ? transaction.selectedTraderId === currentUser.id : false;
+  
+  // 获取交易者信息（Request U 场景需要）
+  useEffect(() => {
+    const fetchTraderUser = async () => {
+      if (transaction.isOTC && transaction.selectedTraderId && !transaction.toUser) {
+        try {
+          const trader = await Services.users.getUser(transaction.selectedTraderId);
+          setTraderUser(trader);
+        } catch (error) {
+          console.error('Failed to fetch trader user:', error);
+        }
+      } else if (transaction.toUser) {
+        setTraderUser(null); // 如果 toUser 已存在，不需要额外获取
+      }
+    };
+    fetchTraderUser();
+  }, [transaction.id, transaction.selectedTraderId, transaction.toUser]);
   
   // 调试日志：检查交易者身份判断
   useEffect(() => {
@@ -607,11 +625,28 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
                 </p>
                 <div className="bg-white p-3 rounded-xl border space-y-2 text-sm">
                   {(() => {
-                    // Request U: 显示交易者的账户信息
-                    // Request 法币: 显示发起者的账户信息
-                    const targetUser = isRequestU && transaction.toUser 
-                      ? transaction.toUser 
-                      : transaction.fromUser;
+                    // Request U: 发起者支付法币，需要显示交易者的账户信息
+                    // Request 法币: 交易者支付法币，需要显示发起者的账户信息
+                    let targetUser: User;
+                    if (isRequestU) {
+                      // Request U: 显示交易者的账户信息
+                      // 优先使用 transaction.toUser，如果没有则使用 traderUser，最后降级为 fromUser
+                      targetUser = transaction.toUser || traderUser || transaction.fromUser;
+                    } else {
+                      // Request 法币: 显示发起者的账户信息
+                      targetUser = transaction.fromUser;
+                    }
+                    
+                    // 如果 Request U 且还没有交易者信息，显示加载状态
+                    if (isRequestU && !transaction.toUser && !traderUser && transaction.selectedTraderId) {
+                      return (
+                        <div className="text-center py-4">
+                          <Loader className="w-4 h-4 animate-spin mx-auto text-gray-400" />
+                          <p className="text-xs text-gray-500 mt-2">正在加载交易者信息...</p>
+                        </div>
+                      );
+                    }
+                    
                     return (
                       <>
                         <div className="flex justify-between">

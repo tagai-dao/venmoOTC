@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import { MultisigRepository } from '../db/repositories/multisigRepository.js';
 import { TransactionRepository } from '../db/repositories/transactionRepository.js';
-import { OTCState, Currency } from '../types.js';
+import { OTCState, Currency, TransactionType } from '../types.js';
 import { config } from '../config.js';
 import { NotificationService } from '../services/notificationService.js';
 
@@ -83,14 +83,24 @@ export const recordSignature = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
+    // 判断是否是 Request U（请求 USDT）
+    const isRequestU = transaction.type === TransactionType.REQUEST && transaction.currency === Currency.USDT;
+
     const updates: any = {};
     if (isInitiator) {
       updates.initiatorChoice = choice;
       updates.initiatorSigned = true;
+      // Request U：发起者支付法币，需要保存支付凭证
+      if (isRequestU && paymentProofUrl) {
+        updates.paymentProofUrl = paymentProofUrl;
+        // 同步更新到 transaction 表
+        await TransactionRepository.update(transactionId, { paymentProofUrl });
+      }
     } else {
       updates.counterpartyChoice = choice;
       updates.counterpartySigned = true;
-      if (paymentProofUrl) {
+      // Request 法币：交易者支付法币，需要保存支付凭证
+      if (!isRequestU && paymentProofUrl) {
         updates.paymentProofUrl = paymentProofUrl;
         // 同步更新到 transaction 表
         await TransactionRepository.update(transactionId, { paymentProofUrl });
@@ -110,26 +120,51 @@ export const recordSignature = async (req: AuthRequest, res: Response) => {
       // 更新交易状态为完成
       await TransactionRepository.update(transactionId, { otcState: OTCState.COMPLETED });
     } else {
-      // 如果还没有达成一致，根据签名者更新交易状态
-      if (isCounterparty && updates.counterpartySigned) {
-        // 交易者已签名（通常意味着已支付法币并上传凭证），等待发起者确认
-        // 只有当交易状态还是 USDT_IN_ESCROW 或 AWAITING_FIAT_PAYMENT 时才更新
-        const currentTransaction = await TransactionRepository.findById(transactionId);
-        if (currentTransaction && 
-            (currentTransaction.otcState === OTCState.USDT_IN_ESCROW || 
-             currentTransaction.otcState === OTCState.AWAITING_FIAT_PAYMENT)) {
-          await TransactionRepository.update(transactionId, { 
-            otcState: OTCState.AWAITING_FIAT_CONFIRMATION 
-          });
+      // 如果还没有达成一致，根据签名者和 Request 类型更新交易状态
+      const currentTransaction = await TransactionRepository.findById(transactionId);
+      
+      if (isRequestU) {
+        // Request U 场景：
+        // - 发起者支付法币并签名（choice = 2），等待交易者确认
+        // - 交易者确认收到法币并签名（choice = 2），完成交易
+        if (isInitiator && updates.initiatorSigned && updates.initiatorChoice === 2) {
+          // 发起者已支付法币并签名，等待交易者确认
+          if (currentTransaction && 
+              (currentTransaction.otcState === OTCState.USDT_IN_ESCROW || 
+               currentTransaction.otcState === OTCState.AWAITING_FIAT_PAYMENT)) {
+            await TransactionRepository.update(transactionId, { 
+              otcState: OTCState.AWAITING_FIAT_CONFIRMATION 
+            });
+          }
+        } else if (isInitiator && updates.initiatorSigned && updates.initiatorChoice === 1) {
+          // 发起者申请退回资产（choice = 1），通知交易者
+          if (currentTransaction && currentTransaction.selectedTraderId) {
+            await NotificationService.notifyRefundRequested(currentTransaction);
+          }
         }
-      } else if (isInitiator && updates.initiatorSigned && updates.initiatorChoice === 1) {
-        // 发起者申请退回资产（choice = 1），通知交易者
-        const currentTransaction = await TransactionRepository.findById(transactionId);
-        if (currentTransaction && currentTransaction.selectedTraderId) {
-          await NotificationService.notifyRefundRequested(currentTransaction);
+        // 如果交易者签名但还没达成一致，状态保持不变（等待发起者签名）
+      } else {
+        // Request 法币场景：
+        // - 交易者支付法币并签名（choice = 2），等待发起者确认
+        // - 发起者确认收到法币并签名（choice = 2），完成交易
+        if (isCounterparty && updates.counterpartySigned) {
+          // 交易者已签名（通常意味着已支付法币并上传凭证），等待发起者确认
+          // 只有当交易状态还是 USDT_IN_ESCROW 或 AWAITING_FIAT_PAYMENT 时才更新
+          if (currentTransaction && 
+              (currentTransaction.otcState === OTCState.USDT_IN_ESCROW || 
+               currentTransaction.otcState === OTCState.AWAITING_FIAT_PAYMENT)) {
+            await TransactionRepository.update(transactionId, { 
+              otcState: OTCState.AWAITING_FIAT_CONFIRMATION 
+            });
+          }
+        } else if (isInitiator && updates.initiatorSigned && updates.initiatorChoice === 1) {
+          // 发起者申请退回资产（choice = 1），通知交易者
+          if (currentTransaction && currentTransaction.selectedTraderId) {
+            await NotificationService.notifyRefundRequested(currentTransaction);
+          }
         }
+        // 如果发起者签名但还没达成一致，状态保持不变（等待交易者签名）
       }
-      // 如果发起者签名但还没达成一致，状态保持不变（等待交易者签名）
     }
 
     res.json({ message: 'Signature recorded', isAgreed });

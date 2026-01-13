@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { CreateTransactionRequest, UpdateTransactionRequest, TransactionType, Privacy, OTCState } from '../types.js';
+import { CreateTransactionRequest, UpdateTransactionRequest, TransactionType, Privacy, OTCState, Currency } from '../types.js';
 import { TransactionRepository } from '../db/repositories/transactionRepository.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { NotificationService } from '../services/notificationService.js';
@@ -381,10 +381,25 @@ export const selectTrader = async (req: AuthRequest, res: Response) => {
 
     console.log(`📊 Transaction state: ${transaction.otcState}, fromUser: ${transaction.fromUser.id}`);
 
-    // 检查是否是请求发起者
-    if (transaction.fromUser.id !== userId) {
-      console.error(`❌ Permission denied: userId=${userId}, transaction.fromUser.id=${transaction.fromUser.id}`);
-      return res.status(403).json({ error: { message: 'Only the requester can select a trader' } });
+    // 判断是否是 Request U（请求 USDT）
+    // Request U 的特征：currency 是 USDT，type 是 REQUEST
+    const isRequestU = transaction.type === TransactionType.REQUEST && transaction.currency === Currency.USDT;
+
+    // 权限检查：
+    // 1. Request U：允许交易者自己选择自己（traderId === userId 且 userId !== fromUser.id）
+    // 2. Request 法币：只有发起者可以选择交易者
+    if (isRequestU) {
+      // Request U：交易者可以自己选择自己
+      if (traderId !== userId || userId === transaction.fromUser.id) {
+        console.error(`❌ Request U: Invalid trader selection. traderId=${traderId}, userId=${userId}, fromUser.id=${transaction.fromUser.id}`);
+        return res.status(403).json({ error: { message: 'In Request U, only traders can select themselves' } });
+      }
+    } else {
+      // Request 法币：只有发起者可以选择交易者
+      if (transaction.fromUser.id !== userId) {
+        console.error(`❌ Permission denied: userId=${userId}, transaction.fromUser.id=${transaction.fromUser.id}`);
+        return res.status(403).json({ error: { message: 'Only the requester can select a trader' } });
+      }
     }
 
     // 检查交易状态
@@ -398,9 +413,13 @@ export const selectTrader = async (req: AuthRequest, res: Response) => {
     }
 
     // 更新交易：选择交易者并更新状态
+    // Request U：只设置 selectedTraderId，不改变状态（recordOrder 会将其更新为 USDT_IN_ESCROW）
+    // Request 法币：设置 selectedTraderId 并将状态更新为 SELECTED_TRADER
+    const newState = isRequestU ? transaction.otcState : OTCState.SELECTED_TRADER;
+    
     const updatedTransaction = await TransactionRepository.update(id, {
       selectedTraderId: traderId,
-      otcState: OTCState.SELECTED_TRADER,
+      otcState: newState,
     });
 
     if (!updatedTransaction) {
@@ -408,10 +427,12 @@ export const selectTrader = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: { message: 'Transaction not found' } });
     }
 
-    console.log(`✅ Trader selected successfully: transactionId=${id}, traderId=${traderId}`);
+    console.log(`✅ Trader selected successfully: transactionId=${id}, traderId=${traderId}, isRequestU=${isRequestU}`);
 
-    // 创建通知
-    await NotificationService.notifyRequestStateChanged(transaction, transaction.otcState, OTCState.SELECTED_TRADER);
+    // 创建通知（Request U 不需要发送 SELECTED_TRADER 通知，因为状态没有改变）
+    if (!isRequestU) {
+      await NotificationService.notifyRequestStateChanged(transaction, transaction.otcState, OTCState.SELECTED_TRADER);
+    }
 
     res.json({ transaction: updatedTransaction });
   } catch (error: any) {
