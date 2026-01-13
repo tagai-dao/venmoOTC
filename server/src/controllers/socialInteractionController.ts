@@ -5,6 +5,7 @@ import { TransactionRepository } from '../db/repositories/transactionRepository.
 import { UserRepository } from '../db/repositories/userRepository.js';
 import { Privacy } from '../types.js';
 import { TwitterService } from '../services/twitterService.js';
+import { config } from '../config.js';
 
 /**
  * 点赞/取消点赞交易
@@ -117,10 +118,48 @@ export const addComment = async (req: AuthRequest, res: Response) => {
           console.warn(`⚠️ User ${userId} does not have Twitter accessToken. Comment will not be posted to X.`);
         } else {
           console.log(`🐦 Posting comment to X for transaction ${transactionId}...`);
-          // 调用真实的 Twitter API 回复推文
+          
+          // 为评论生成应用内链接，并附加到评论文本末尾
+          // 链接格式：https://app.example.com/?tx=<transactionId>
+          const txLink = `${config.frontendUrl.replace(/\/$/, '')}/?tx=${transactionId}`;
+          
+          // 预留出链接与分隔符的长度，避免超过 280 字符
+          const separator = '\n\n';
+          const maxLength = 280;
+          const reservedForLink = separator.length + txLink.length;
+          let finalCommentText = text;
+          
+          // 如果原始文本加上链接会超过 280 字符，需要截断
+          if (finalCommentText.length + reservedForLink > maxLength) {
+            const allowedTextLength = Math.max(maxLength - reservedForLink, 0);
+            // 预留 3 个字符给省略号
+            if (allowedTextLength > 3) {
+              finalCommentText = finalCommentText.substring(0, allowedTextLength - 3) + '...';
+            } else {
+              // 极端情况下，直接用链接
+              finalCommentText = '';
+            }
+          }
+          
+          // 仅当原始文本非空时添加分隔符
+          if (finalCommentText) {
+            finalCommentText += separator + txLink;
+          } else {
+            finalCommentText = txLink;
+          }
+          
+          // 再次确保总长度不超过 280（极端保护）
+          if (finalCommentText.length > maxLength) {
+            finalCommentText = finalCommentText.substring(0, maxLength);
+          }
+          
+          console.log('📝 Comment text with link:', finalCommentText);
+          console.log('📝 Comment text length:', finalCommentText.length);
+          
+          // 调用真实的 Twitter API 回复推文（使用带链接的文本）
           const replyResult = await TwitterService.replyToTweet(
             transaction.xPostId,
-            text,
+            finalCommentText,
             commentUserAccessToken
           );
           

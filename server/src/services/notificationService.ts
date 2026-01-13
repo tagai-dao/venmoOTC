@@ -145,7 +145,8 @@ export class NotificationService {
 
   /**
    * 通知：USDT 已存入多签合约
-   * 当 Request 发起者将 USDT 存入多签合约后，通知被选中的交易者
+   * Request 法币：发起者存入 USDT，通知交易者支付法币
+   * Request U：交易者存入 USDT，通知发起者支付法币
    */
   static async notifyUSDTInEscrow(transaction: Transaction): Promise<void> {
     try {
@@ -153,6 +154,9 @@ export class NotificationService {
       if (transaction.type !== TransactionType.REQUEST || !transaction.isOTC || !transaction.selectedTraderId) {
         return;
       }
+
+      // 判断是否是 Request U（Request USDT）
+      const isRequestU = transaction.currency === Currency.USDT;
 
       // 获取被选中的交易者信息
       const selectedTrader = await UserRepository.findById(transaction.selectedTraderId);
@@ -162,20 +166,40 @@ export class NotificationService {
       }
 
       const fromUser = transaction.fromUser;
-      const title = 'USDT 已多签支付，请进行法币支付';
-      const message = `${fromUser.name} (${fromUser.handle}) 已将 ${transaction.amount} ${transaction.currency} 存入多签合约。请进行法币支付并上传凭证，然后对多签交易进行签名。`;
 
-      await NotificationRepository.create({
-        userId: selectedTrader.id,
-        type: NotificationType.REQUEST_STATE_CHANGED,
-        title,
-        message,
-        transactionId: transaction.id,
-        relatedUserId: fromUser.id,
-        isRead: false,
-      });
+      if (isRequestU) {
+        // Request U：交易者存入 USDT，通知发起者支付法币
+        const title = 'USDT 已多签支付，请进行法币支付';
+        const message = `${selectedTrader.name} (${selectedTrader.handle}) 已将 ${transaction.amount} ${transaction.currency} 存入多签合约。请进行法币支付并上传凭证，然后对多签交易进行签名。`;
 
-      console.log(`📬 Notification sent: USDT in escrow to selected trader ${selectedTrader.handle}`);
+        await NotificationRepository.create({
+          userId: fromUser.id,
+          type: NotificationType.REQUEST_STATE_CHANGED,
+          title,
+          message,
+          transactionId: transaction.id,
+          relatedUserId: selectedTrader.id,
+          isRead: false,
+        });
+
+        console.log(`📬 Notification sent: USDT in escrow (Request U) to initiator ${fromUser.handle}`);
+      } else {
+        // Request 法币：发起者存入 USDT，通知交易者支付法币
+        const title = 'USDT 已多签支付，请进行法币支付';
+        const message = `${fromUser.name} (${fromUser.handle}) 已将 ${transaction.otcOfferAmount || transaction.amount} ${Currency.USDT} 存入多签合约。请进行法币支付并上传凭证，然后对多签交易进行签名。`;
+
+        await NotificationRepository.create({
+          userId: selectedTrader.id,
+          type: NotificationType.REQUEST_STATE_CHANGED,
+          title,
+          message,
+          transactionId: transaction.id,
+          relatedUserId: fromUser.id,
+          isRead: false,
+        });
+
+        console.log(`📬 Notification sent: USDT in escrow (Request Fiat) to selected trader ${selectedTrader.handle}`);
+      }
     } catch (error) {
       console.error('Failed to send USDT in escrow notification:', error);
     }

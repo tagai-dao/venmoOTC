@@ -4,6 +4,7 @@ import { TransactionRepository } from '../db/repositories/transactionRepository.
 import { AuthRequest } from '../middleware/auth.js';
 import { NotificationService } from '../services/notificationService.js';
 import { TwitterService } from '../services/twitterService.js';
+import { config } from '../config.js';
 
 /**
  * 获取交易列表
@@ -175,22 +176,50 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
             }
           } else {
             // 确定推文内容：优先使用用户编写的内容，否则自动生成
-            let finalTweetContent = tweetContent?.trim();
-            if (!finalTweetContent) {
+            let baseTweetContent = tweetContent?.trim();
+            if (!baseTweetContent) {
               console.log('🐦 No tweet content provided, generating automatically...');
-              finalTweetContent = TwitterService.generateTweetContent(newTransaction);
+              baseTweetContent = TwitterService.generateTweetContent(newTransaction);
             } else {
               console.log('🐦 Using user-provided tweet content');
             }
-            
-            // 确保内容不超过 280 字符
-            if (finalTweetContent.length > 280) {
-              finalTweetContent = finalTweetContent.substring(0, 277) + '...';
+
+            // 为每一个 Request 动态生成一个应用内链接，并附加到推文末尾
+            // 例如：https://app.example.com/?tx=<transactionId>
+            const txLink = `${config.frontendUrl.replace(/\/$/, '')}/?tx=${newTransaction.id}`;
+
+            // 预留出链接与分隔符的长度，避免超过 280 字符
+            const separator = '\n\n';
+            const maxLength = 280;
+            const reservedForLink = separator.length + txLink.length;
+            let finalTweetContent = baseTweetContent;
+
+            if (finalTweetContent.length + reservedForLink > maxLength) {
+              const allowedBaseLength = Math.max(maxLength - reservedForLink, 0);
+              // 预留 3 个字符给省略号
+              if (allowedBaseLength > 3) {
+                finalTweetContent = finalTweetContent.substring(0, allowedBaseLength - 3) + '...';
+              } else {
+                // 极端情况下，直接用链接
+                finalTweetContent = '';
+              }
             }
-            
-            console.log('📝 Tweet content:', finalTweetContent);
+
+            // 仅当 base 内容非空时添加分隔符
+            if (finalTweetContent) {
+              finalTweetContent += separator + txLink;
+            } else {
+              finalTweetContent = txLink;
+            }
+
+            // 再次确保总长度不超过 280（极端保护）
+            if (finalTweetContent.length > maxLength) {
+              finalTweetContent = finalTweetContent.substring(0, maxLength);
+            }
+
+            console.log('📝 Tweet content with link:', finalTweetContent);
             console.log('📝 Tweet content length:', finalTweetContent.length);
-            
+
             // 使用有效的 Twitter accessToken 发布推文
             console.log('🔑 Using user Twitter accessToken to post tweet...');
             console.log('🔑 AccessToken details:', {

@@ -36,6 +36,10 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
     fetchBids();
   }, [transaction.id]);
 
+  // 判断是否是 Request U（Request USDT）
+  const isRequestU = transaction.currency === Currency.USDT;
+
+  // 处理发起者选择交易者（Request 法币场景）
   const handleSelectTrader = async (bid: Bid) => {
     if (!currentUser || !wallets[0]) {
       alert('请先连接钱包');
@@ -59,7 +63,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
 
       setStatus('正在调用合约创建多签订单...');
       
-      // 2. 调用合约
+      // 2. 调用合约（发起者存入 USDT）
       const provider = await wallets[0].getEthereumProvider();
       const { orderId, txHash } = await MultisigContractService.createOrder(
         provider,
@@ -90,6 +94,68 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
       onClose();
     } catch (error: any) {
       console.error('Failed to select trader:', error);
+      alert(`操作失败: ${error?.message || '未知错误'}`);
+    } finally {
+      setSelecting(null);
+      setStatus('');
+    }
+  };
+
+  // 处理交易者确认支付 USDT（Request U 场景）
+  const handleTraderPayUSDT = async (bid: Bid) => {
+    if (!currentUser || !wallets[0]) {
+      alert('请先连接钱包');
+      return;
+    }
+
+    // 验证是否是交易者本人
+    if (currentUser.id !== bid.userId) {
+      alert('只能确认自己的支付');
+      return;
+    }
+
+    setSelecting(bid.userId);
+    try {
+      // 1. 获取合约和代币地址 (主网)
+      const MULTISIG_ADDR = "0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6";
+      const USDT_ADDR = "0x55d398326f99059fF775485246999027B3197955";
+
+      // Request U: currency 是 USDT，amount 就是需要存入的 USDT 数量
+      const usdtAmount = transaction.amount.toString();
+
+      setStatus('正在调用合约创建多签订单...');
+      
+      // 2. 调用合约（交易者存入 USDT，对手是发起者）
+      const provider = await wallets[0].getEthereumProvider();
+      const { orderId, txHash } = await MultisigContractService.createOrder(
+        provider,
+        MULTISIG_ADDR,
+        USDT_ADDR,
+        transaction.fromUser.walletAddress, // 对手是发起者
+        usdtAmount
+      );
+
+      setStatus('订单创建成功，正在同步到服务器...');
+
+      // 3. 同步到后端：更新交易状态（设置 selectedTraderId）
+      await Services.transactions.selectTrader(transaction.id, bid.userId);
+      
+      // 4. 记录链上订单（这会更新状态为 USDT_IN_ESCROW）
+      await Services.multisig.recordOrder({
+        transactionId: transaction.id,
+        traderAddress: currentUser.walletAddress, // 交易者地址
+        usdtAmount: usdtAmount,
+        onchainOrderId: orderId
+      });
+
+      setStatus('同步成功！');
+      alert(`🎉 成功创建多签订单！\n链上 ID: ${orderId}\n状态已更新为：USDT 已托管`);
+      
+      // 5. 刷新 feed 以显示最新状态
+      await refreshFeed();
+      onClose();
+    } catch (error: any) {
+      console.error('Failed to pay USDT:', error);
       alert(`操作失败: ${error?.message || '未知错误'}`);
     } finally {
       setSelecting(null);
@@ -157,7 +223,8 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
                     {bid.message && (
                       <p className="text-sm text-gray-700 mb-2">{bid.message}</p>
                     )}
-                    {currentUser?.id === transaction.fromUser.id && 
+                    {/* Request 法币：发起者选择交易者 */}
+                    {!isRequestU && currentUser?.id === transaction.fromUser.id && 
                      (transaction.otcState === OTCState.BIDDING || transaction.otcState === OTCState.OPEN_REQUEST) && (
                       <button
                         onClick={() => handleSelectTrader(bid)}
@@ -170,6 +237,24 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
                           <>
                             <Check className="w-4 h-4" />
                             选择此交易者并锁定 USDT
+                          </>
+                        )}
+                      </button>
+                    )}
+                    {/* Request U：交易者确认支付 USDT */}
+                    {isRequestU && currentUser?.id === bid.userId && 
+                     (transaction.otcState === OTCState.BIDDING || transaction.otcState === OTCState.OPEN_REQUEST) && (
+                      <button
+                        onClick={() => handleTraderPayUSDT(bid)}
+                        disabled={selecting !== null}
+                        className="w-full mt-2 bg-green-500 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-green-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {selecting === bid.userId ? (
+                          <Loader className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            确认支付 USDT
                           </>
                         )}
                       </button>

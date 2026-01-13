@@ -235,6 +235,9 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
     setStatusText('正在处理...');
     
     try {
+      // 判断是否是 Request U
+      const isRequestU = transaction.currency === Currency.USDT;
+      
       const currentCount = transaction.fiatRejectionCount || 0;
       const newCount = currentCount + 1;
       
@@ -265,20 +268,25 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
         
         setStatusText('正在发起资产退回请求...');
         
-        // 1. 调用合约签名（choice = 1，退回给发起者）
+        // 确定退回方向
+        // Request 法币：发起者存入 USDT，退回给发起者（choice = 1）
+        // Request U：交易者存入 USDT，退回给交易者（choice = 1，但需要交易者签名）
+        const refundChoice = 1; // Choice 1: 退回给存入 USDT 的一方
+        
+        // 1. 调用合约签名
         const provider = await wallets[0].getEthereumProvider();
         await MultisigContractService.signOrder(
           provider,
           MULTISIG_ADDR,
           orderId.toString(),
-          1 // Choice 1: INITIATOR (退回自己)
+          refundChoice
         );
         
         // 2. 同步签名状态到后端
         setStatusText('正在同步签名状态...');
         await Services.multisig.recordSignature({
           transactionId: transaction.id,
-          choice: 1 // Choice 1: INITIATOR (退回自己)
+          choice: refundChoice
         });
         
         // 3. 更新交易状态和拒绝次数
@@ -288,7 +296,13 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
         });
         
         setStatusText('完成！');
-        alert('✅ 已发起资产退回请求。等待交易者签名后，USDT 将返回到您的账户。');
+        if (isRequestU) {
+          // Request U: 交易者点击"未收到法币"，发起退回给交易者
+          alert('✅ 已发起资产退回请求。等待发起者签名后，USDT 将返回到您的账户。');
+        } else {
+          // Request 法币: 发起者点击"未收到法币"，发起退回给发起者
+          alert('✅ 已发起资产退回请求。等待交易者签名后，USDT 将返回到您的账户。');
+        }
       } else {
         // 第一次点击"未收到法币"，只更新状态和计数
         await Services.transactions.updateTransaction(transaction.id, {
@@ -328,11 +342,18 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   const renderOTCAction = () => {
     if (!transaction.isOTC) return null;
 
+    // 判断是否是 Request U（Request USDT）
+    const isRequestU = transaction.currency === Currency.USDT;
+
     // 检查是否是退款流程（两次未收到法币）
     const rejectionCount = transaction.fiatRejectionCount || 0;
-    const isRefundFlow = rejectionCount >= 2 && multisigInfo?.initiatorChoice === 1;
+    // 退款流程：任何一方选择 choice = 1（退回）且已签名
+    const hasRefundChoice = (multisigInfo?.initiatorChoice === 1 || multisigInfo?.counterpartyChoice === 1);
+    const isRefundFlow = rejectionCount >= 2 && hasRefundChoice;
     const isRefundSuccess = isRefundFlow && multisigInfo?.status === 'EXECUTED';
-    const isRefundInProgress = isRefundFlow && !isRefundSuccess && multisigInfo?.initiatorSigned;
+    const isRefundInProgress = isRefundFlow && !isRefundSuccess && 
+                               ((multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned) ||
+                                (multisigInfo?.counterpartyChoice === 1 && multisigInfo?.counterpartySigned));
 
     // === 0. 退款成功状态（无论当前 otcState 是什么） ===
     if (isRefundSuccess) {
@@ -345,15 +366,25 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
 
     // === 0.5. 退款进行中状态（无论当前 otcState 是什么） ===
     if (isRefundInProgress) {
-      if (isToMe) {
-        // 交易者：显示"交易失败，待签名 & 回退 USDT 给 Request 发起者"
+      // 判断是谁发起的退回请求
+      const isInitiatorRefund = multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned;
+      const isCounterpartyRefund = multisigInfo?.counterpartyChoice === 1 && multisigInfo?.counterpartySigned;
+      
+      // Request 法币：如果发起者发起退回，交易者需要签名
+      // Request U：如果交易者发起退回，发起者需要签名
+      const needsMySignature = (isRequestU && isCounterpartyRefund && isMe) || 
+                              (!isRequestU && isInitiatorRefund && isToMe);
+      
+      if (needsMySignature) {
+        // 需要我签名：显示"交易失败，待签名 & 回退 USDT"
         return (
           <div className="mt-3 bg-orange-600 text-white p-3 rounded-xl text-center text-xs font-bold flex items-center justify-center gap-2 shadow-lg">
-            <AlertTriangle className="w-4 h-4" /> 交易失败，待签名 & 回退 USDT 给 Request 发起者
+            <AlertTriangle className="w-4 h-4" /> 
+            交易失败，待签名 & 回退 USDT {isRequestU ? '给交易者' : '给 Request 发起者'}
           </div>
         );
       } else {
-        // 其他人（包括发起者）：显示"交易失败 & USDT 回退中"
+        // 其他人：显示"交易失败 & USDT 回退中"
         return (
           <div className="mt-3 bg-orange-600 text-white p-3 rounded-xl text-center text-xs font-bold flex items-center justify-center gap-2 shadow-lg">
             <Loader className="w-4 h-4 animate-spin" /> 交易失败 & USDT 回退中
@@ -364,50 +395,156 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
 
     // === 1. 等待抢单或正在抢单 ===
     if (transaction.otcState === OTCState.OPEN_REQUEST || transaction.otcState === OTCState.BIDDING) {
-      if (isMe) {
-        return (
-          <button
-            onClick={() => setShowBidList(true)}
-            className="mt-3 w-full bg-blue-500 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-blue-600 transition flex items-center justify-center gap-2 shadow-lg"
-          >
-            <UserCheck className="w-4 h-4" />
-            查看抢单列表 ({transaction.bids?.length || 0})
-          </button>
-        );
+      // Request U：没有抢单环节，交易者直接支付 USDT
+      if (isRequestU) {
+        if (isMe) {
+          // 发起者：显示等待交易者支付 USDT
+          return (
+            <div className="mt-3 bg-blue-50 text-blue-700 p-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-blue-100">
+              <Loader className="w-3 h-3 animate-spin" />
+              等待交易者支付 USDT...
+            </div>
+          );
+        } else {
+          // 交易者：直接显示"确认支付 USDT"按钮
+          if (!wallets[0]) {
+            return (
+              <div className="mt-3 bg-yellow-50 text-yellow-800 p-3 rounded-xl border border-yellow-200 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                <span>请先连接钱包才能支付 USDT</span>
+              </div>
+            );
+          }
+          
+          return (
+            <button
+              disabled={isProcessing}
+              onClick={async () => {
+                if (!currentUser || !wallets[0]) {
+                  alert('请先连接钱包');
+                  return;
+                }
+                
+                setIsProcessing(true);
+                setStatusText('正在创建多签订单...');
+                
+                try {
+                  // 1. 获取合约和代币地址 (主网)
+                  const MULTISIG_ADDR = "0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6";
+                  const USDT_ADDR = "0x55d398326f99059fF775485246999027B3197955";
+                  
+                  // Request U: currency 是 USDT，amount 就是需要存入的 USDT 数量
+                  const usdtAmount = transaction.amount.toString();
+                  
+                  // 2. 调用合约（交易者存入 USDT，对手是发起者）
+                  const provider = await wallets[0].getEthereumProvider();
+                  const { orderId, txHash } = await MultisigContractService.createOrder(
+                    provider,
+                    MULTISIG_ADDR,
+                    USDT_ADDR,
+                    transaction.fromUser.walletAddress, // 对手是发起者
+                    usdtAmount
+                  );
+                  
+                  setStatusText('订单创建成功，正在同步到服务器...');
+                  
+                  // 3. 同步到后端：更新交易状态（设置 selectedTraderId）
+                  await Services.transactions.selectTrader(transaction.id, currentUser.id);
+                  
+                  // 4. 记录链上订单（这会更新状态为 USDT_IN_ESCROW）
+                  await Services.multisig.recordOrder({
+                    transactionId: transaction.id,
+                    traderAddress: currentUser.walletAddress, // 交易者地址
+                    usdtAmount: usdtAmount,
+                    onchainOrderId: orderId
+                  });
+                  
+                  setStatusText('同步成功！');
+                  alert(`🎉 成功创建多签订单！\n链上 ID: ${orderId}\n状态已更新为：USDT 已托管`);
+                  
+                  // 5. 刷新 feed 以显示最新状态
+                  await refreshFeed();
+                } catch (error: any) {
+                  console.error('Failed to pay USDT:', error);
+                  alert(`操作失败: ${error?.message || '未知错误'}`);
+                } finally {
+                  setIsProcessing(false);
+                  setStatusText('');
+                }
+              }}
+              className="mt-3 w-full bg-green-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-green-700 transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+            >
+              {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+              确认支付 USDT
+            </button>
+          );
+        }
       } else {
-        const hasBid = transaction.bids?.some(bid => bid.userId === currentUser?.id);
-        return (
-          <button
-            disabled={isProcessing || hasBid}
-            onClick={handleBid}
-            className={`mt-3 w-full py-2.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-lg
-              ${hasBid ? 'bg-gray-100 text-gray-500 cursor-default' : 'bg-green-600 text-white hover:bg-green-700'}`}
-          >
-            {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : (hasBid ? <Check className="w-4 h-4" /> : <Hand className="w-4 h-4" />)}
-            {hasBid ? '已抢单' : '我要抢单'}
-          </button>
-        );
+        // Request 法币：需要抢单流程
+        if (isMe) {
+          return (
+            <button
+              onClick={() => setShowBidList(true)}
+              className="mt-3 w-full bg-blue-500 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-blue-600 transition flex items-center justify-center gap-2 shadow-lg"
+            >
+              <UserCheck className="w-4 h-4" />
+              查看抢单列表 ({transaction.bids?.length || 0})
+            </button>
+          );
+        } else {
+          const hasBid = transaction.bids?.some(bid => bid.userId === currentUser?.id);
+          return (
+            <button
+              disabled={isProcessing || hasBid}
+              onClick={handleBid}
+              className={`mt-3 w-full py-2.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-lg
+                ${hasBid ? 'bg-gray-100 text-gray-500 cursor-default' : 'bg-green-600 text-white hover:bg-green-700'}`}
+            >
+              {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : (hasBid ? <Check className="w-4 h-4" /> : <Hand className="w-4 h-4" />)}
+              {hasBid ? '已抢单' : '我要抢单'}
+            </button>
+          );
+        }
       }
     }
 
     // === 2. USDT 已托管 (等待法币支付) ===
     if (transaction.otcState === OTCState.USDT_IN_ESCROW || transaction.otcState === OTCState.AWAITING_FIAT_PAYMENT) {
-      if (isToMe) {
+      // Request 法币：交易者支付法币并签名
+      // Request U：发起者支付法币并签名
+      if ((!isRequestU && isToMe) || (isRequestU && isMe)) {
         // 检查是否被拒绝过（发起者点击了"未收到法币"）
         const rejectionCount = transaction.fiatRejectionCount || 0;
         const hasRejection = rejectionCount > 0;
         const shouldRefund = rejectionCount >= 2; // 第二次拒绝，直接进入退款流程
         
-        // 如果发起者已经发起退回请求（通过多签 choice = 1），显示退款提示
-        if (multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned) {
+        // 检查是否有一方已经发起退回请求（通过多签 choice = 1）
+        // Request 法币：发起者发起退回（initiatorChoice = 1）
+        // Request U：交易者发起退回（counterpartyChoice = 1，但需要检查是谁签名的）
+        const hasRefundRequest = (multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned) ||
+                                 (multisigInfo?.counterpartyChoice === 1 && multisigInfo?.counterpartySigned);
+        
+        if (hasRefundRequest) {
+          // 判断是谁发起的退回请求
+          const isInitiatorRefund = multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned;
+          const isCounterpartyRefund = multisigInfo?.counterpartyChoice === 1 && multisigInfo?.counterpartySigned;
+          
           return (
             <div className="mt-3 bg-red-50 p-4 rounded-xl border border-red-200 text-sm text-red-800">
               <div className="flex items-center gap-2 font-bold mb-2">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span>发起者已申请退回资产（两次未收到法币）。请同意签名以完成退款。</span>
+                <span>
+                  {isRequestU 
+                    ? (isCounterpartyRefund ? '交易者已申请退回资产（两次未收到法币）。请同意签名以完成退款。' : '发起者已申请退回资产（两次未收到法币）。请同意签名以完成退款。')
+                    : (isInitiatorRefund ? '发起者已申请退回资产（两次未收到法币）。请同意签名以完成退款。' : '交易者已申请退回资产（两次未收到法币）。请同意签名以完成退款。')}
+                </span>
               </div>
               <button 
-                onClick={() => handleTraderPayAndSign(1)} // Choice 1: 同意退回
+                onClick={() => {
+                  // Request U: 如果是交易者发起的退回，发起者同意（choice = 1）
+                  // Request 法币: 如果是发起者发起的退回，交易者同意（choice = 1）
+                  handleTraderPayAndSign(1);
+                }}
                 className="w-full mt-2 bg-red-600 text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-red-700"
               >
                 {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -417,12 +554,16 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
           );
         }
         
-        // 如果应该退款但发起者还没签名，显示等待提示
+        // 如果应该退款但还没签名，显示等待提示
         if (shouldRefund) {
           return (
             <div className="mt-3 bg-yellow-50 text-yellow-800 p-3 rounded-xl border border-yellow-200 text-xs font-bold flex items-center gap-2">
               <Loader className="w-4 h-4 animate-spin text-yellow-600" />
-              <span>发起者已两次声称未收到法币，正在发起资产退回流程，请等待...</span>
+              <span>
+                {isRequestU 
+                  ? '交易者已两次声称未收到法币，正在发起资产退回流程，请等待...'
+                  : '发起者已两次声称未收到法币，正在发起资产退回流程，请等待...'}
+              </span>
             </div>
           );
         }
@@ -435,12 +576,12 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
               {hasRejection ? (
                 <div className="bg-yellow-50 text-yellow-800 p-3 rounded-xl border border-yellow-200 text-xs font-bold flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                  <span>Request 发起者声称未收到法币，请 check 并再次提交支付记录</span>
+                  <span>{isRequestU ? '交易者声称未收到法币，请 check 并再次提交支付记录' : 'Request 发起者声称未收到法币，请 check 并再次提交支付记录'}</span>
                 </div>
               ) : (
                 <div className="bg-green-50 text-green-800 p-3 rounded-xl border border-green-200 text-xs font-bold flex items-center gap-2">
                   <Check className="w-4 h-4 text-green-600" />
-                  <span>USDT 已多签支付，请进行法币支付并签名</span>
+                  <span>{isRequestU ? '交易者已存入 USDT，请进行法币支付并签名' : 'USDT 已多签支付，请进行法币支付并签名'}</span>
                 </div>
               )}
               {/* 操作按钮 */}
@@ -461,25 +602,38 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
           return (
             <div className="mt-3 space-y-4 bg-gray-50 p-4 rounded-2xl border border-gray-200 animate-in fade-in">
               <div className="space-y-2">
-                <p className="text-[10px] font-bold text-gray-400 uppercase">收款人 (Request 发起者) 账户</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase">
+                  {isRequestU ? '收款人 (交易者) 账户' : '收款人 (Request 发起者) 账户'}
+                </p>
                 <div className="bg-white p-3 rounded-xl border space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">银行:</span>
-                    <span className="font-bold">{transaction.fromUser.fiatDetails?.bankName || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">账号:</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold font-mono">{transaction.fromUser.fiatDetails?.accountNumber || 'N/A'}</span>
-                      <button onClick={() => handleCopy(transaction.fromUser.fiatDetails?.accountNumber || '', 'acc')} className="p-1 hover:bg-gray-100 rounded text-gray-400">
-                        {copiedField === 'acc' ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">户名:</span>
-                    <span className="font-bold">{transaction.fromUser.fiatDetails?.accountName || transaction.fromUser.name}</span>
-                  </div>
+                  {(() => {
+                    // Request U: 显示交易者的账户信息
+                    // Request 法币: 显示发起者的账户信息
+                    const targetUser = isRequestU && transaction.toUser 
+                      ? transaction.toUser 
+                      : transaction.fromUser;
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">银行:</span>
+                          <span className="font-bold">{targetUser.fiatDetails?.bankName || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">账号:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold font-mono">{targetUser.fiatDetails?.accountNumber || 'N/A'}</span>
+                            <button onClick={() => handleCopy(targetUser.fiatDetails?.accountNumber || '', 'acc')} className="p-1 hover:bg-gray-100 rounded text-gray-400">
+                              {copiedField === 'acc' ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">户名:</span>
+                          <span className="font-bold">{targetUser.fiatDetails?.accountName || targetUser.name}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -499,7 +653,11 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
                   </label>
                   <button 
                     disabled={isProcessing || !file}
-                    onClick={() => handleTraderPayAndSign(2)} // Choice 2: COUNTERPARTY (给对手，即交易者自己)
+                    onClick={() => {
+                      // Request U: 发起者支付法币，choice = 2 (给交易者)
+                      // Request 法币: 交易者支付法币，choice = 2 (给交易者自己，即释放 USDT 给交易者)
+                      handleTraderPayAndSign(2);
+                    }}
                     className="flex-[1.5] bg-green-600 text-white rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 hover:bg-green-700 disabled:opacity-50"
                   >
                     {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -511,28 +669,42 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
             </div>
           );
         }
-      } else if (isMe) {
+      } else if ((!isRequestU && isMe) || (isRequestU && isToMe)) {
+        // Request 法币: 发起者等待交易者支付法币
+        // Request U: 交易者等待发起者支付法币
         return (
           <div className="mt-3 bg-blue-50 text-blue-700 p-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-blue-100">
             <Loader className="w-3 h-3 animate-spin" />
-            USDT 已托管，等待交易方支付法币并签名...
+            {isRequestU ? 'USDT 已托管，等待发起者支付法币并签名...' : 'USDT 已托管，等待交易方支付法币并签名...'}
           </div>
         );
       }
     }
 
-    // === 3. 等待法币确认 (交易者已付) ===
+    // === 3. 等待法币确认 (一方已支付法币) ===
     if (transaction.otcState === OTCState.AWAITING_FIAT_CONFIRMATION) {
-      if (isMe) {
+      // Request 法币: 发起者确认收到法币并签名
+      // Request U: 交易者确认收到法币并签名
+      if ((!isRequestU && isMe) || (isRequestU && isToMe)) {
         const rejectionCount = transaction.fiatRejectionCount || 0;
         // 如果已经拒绝过一次，第二次点击"未收到法币"会直接发起退款，所以这里只显示一次
         return (
           <div className="mt-3 space-y-3 bg-yellow-50 p-4 rounded-2xl border border-yellow-200">
-            <p className="text-xs font-bold text-yellow-800">交易方已标记支付并上传凭证，请核实收款后释放 USDT。</p>
+            <p className="text-xs font-bold text-yellow-800">
+              {isRequestU ? '发起者已标记支付并上传凭证，请核实收款后释放 USDT。' : '交易方已标记支付并上传凭证，请核实收款后释放 USDT。'}
+            </p>
             <div className="flex gap-2">
               <button
                 disabled={isProcessing}
-                onClick={() => handleInitiatorSign(2)} // Choice 2: COUNTERPARTY (释放给对方)
+                onClick={() => {
+                  // Request U: 交易者确认收到法币，choice = 2 (释放 USDT 给发起者)
+                  // Request 法币: 发起者确认收到法币，choice = 2 (释放 USDT 给交易者)
+                  if (isRequestU) {
+                    handleTraderPayAndSign(2);
+                  } else {
+                    handleInitiatorSign(2);
+                  }
+                }}
                 className="flex-1 bg-green-600 text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:bg-green-700"
               >
                 {isProcessing && statusText.includes('合约') ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -550,7 +722,15 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
             {/* 紧急退款入口 */}
             <div className="pt-2 border-t border-yellow-200 flex justify-center">
               <button 
-                onClick={() => handleInitiatorSign(1)} // Choice 1: INITIATOR (退回自己)
+                onClick={() => {
+                  // Request U: 如果交易者点击，退回给交易者（choice = 1）
+                  // Request 法币: 如果发起者点击，退回给发起者（choice = 1）
+                  if (isRequestU && isToMe) {
+                    handleTraderPayAndSign(1);
+                  } else if (!isRequestU && isMe) {
+                    handleInitiatorSign(1);
+                  }
+                }}
                 className="text-[10px] text-gray-400 hover:text-red-500 flex items-center gap-1"
               >
                 <AlertTriangle className="w-3 h-3" />
@@ -559,17 +739,38 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
             </div>
           </div>
         );
-      } else if (isToMe) {
-        // 如果发起者已经发起退回请求（通过多签 choice = 1），优先显示退款提示
-        if (multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned) {
+      } else if ((!isRequestU && isToMe) || (isRequestU && isMe)) {
+        // Request 法币: 交易者等待发起者确认
+        // Request U: 发起者等待交易者确认
+        // 如果一方已经发起退回请求（通过多签 choice = 1），优先显示退款提示
+        const hasRefundRequest = (multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned) ||
+                                 (multisigInfo?.counterpartyChoice === 1 && multisigInfo?.counterpartySigned);
+        
+        if (hasRefundRequest) {
+          // 判断是谁发起的退回请求
+          const isInitiatorRefund = multisigInfo?.initiatorChoice === 1 && multisigInfo?.initiatorSigned;
+          const isCounterpartyRefund = multisigInfo?.counterpartyChoice === 1 && multisigInfo?.counterpartySigned;
+          
           return (
             <div className="mt-3 bg-red-50 p-4 rounded-xl border border-red-200 text-sm text-red-800">
               <div className="flex items-center gap-2 font-bold mb-2">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span>发起者已申请退回资产（两次未收到法币）。请同意签名以完成退款，USDT 将返回到发起者账户。</span>
+                <span>
+                  {isRequestU 
+                    ? (isCounterpartyRefund ? '交易者已申请退回资产（两次未收到法币）。请同意签名以完成退款，USDT 将返回到交易者账户。' : '发起者已申请退回资产（两次未收到法币）。请同意签名以完成退款，USDT 将返回到发起者账户。')
+                    : (isInitiatorRefund ? '发起者已申请退回资产（两次未收到法币）。请同意签名以完成退款，USDT 将返回到发起者账户。' : '交易者已申请退回资产（两次未收到法币）。请同意签名以完成退款，USDT 将返回到交易者账户。')}
+                </span>
               </div>
               <button 
-                onClick={() => handleTraderPayAndSign(1)} // Choice 1: 同意退回
+                onClick={() => {
+                  // Request U: 如果是交易者发起的退回，发起者同意（choice = 1）
+                  // Request 法币: 如果是发起者发起的退回，交易者同意（choice = 1）
+                  if (isRequestU && isCounterpartyRefund) {
+                    handleInitiatorSign(1);
+                  } else if (!isRequestU && isInitiatorRefund) {
+                    handleTraderPayAndSign(1);
+                  }
+                }}
                 className="w-full mt-2 bg-red-600 text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-red-700"
               >
                 {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -579,12 +780,14 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
           );
         }
         
-        // 正常情况：凭证已上传，等待发起者确认
+        // 正常情况：凭证已上传，等待对方确认
         return (
           <div className="mt-3 bg-green-50 p-4 rounded-xl border border-green-100 text-sm text-green-800">
             <div className="flex items-center gap-2 font-bold">
               <Check className="w-4 h-4 bg-green-500 text-white rounded-full p-0.5" />
-              凭证已上传，等待发起者确认收货并放行 USDT。
+              {isRequestU 
+                ? '凭证已上传，等待交易者确认收货并放行 USDT。'
+                : '凭证已上传，等待发起者确认收货并放行 USDT。'}
             </div>
           </div>
         );
