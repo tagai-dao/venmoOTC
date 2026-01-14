@@ -268,6 +268,19 @@ export const Services = {
         getUser: async (id: string): Promise<User> => {
             const response = await apiRequest<{ user: User }>(`/api/users/${id}`);
             return response.user;
+        },
+
+        updateCurrentUser: async (fiatDetails: {
+            bankName: string;
+            accountNumber: string;
+            accountName: string;
+            country?: string;
+        }): Promise<User> => {
+            const response = await apiRequest<{ user: User }>('/api/users/me', {
+                method: 'PUT',
+                body: JSON.stringify({ fiatDetails }),
+            });
+            return response.user;
         }
     },
 

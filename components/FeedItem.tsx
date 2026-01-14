@@ -16,6 +16,62 @@ interface FeedItemProps {
 
 const MULTISIG_ADDR = "0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6";
 
+// 国家代码到国家名称的映射
+const getCountryName = (code: string | undefined): string => {
+  if (!code) return '';
+  
+  const countryMap: Record<string, string> = {
+    'CN': '中国',
+    'US': '美国',
+    'GB': '英国',
+    'NG': '尼日利亚',
+    'VE': '委内瑞拉',
+    'IN': '印度',
+    'BR': '巴西',
+    'JP': '日本',
+    'KR': '韩国',
+    'SG': '新加坡',
+    'HK': '香港',
+    'TW': '台湾',
+    'AU': '澳大利亚',
+    'CA': '加拿大',
+    'DE': '德国',
+    'FR': '法国',
+    'IT': '意大利',
+    'ES': '西班牙',
+    'NL': '荷兰',
+    'BE': '比利时',
+    'CH': '瑞士',
+    'AT': '奥地利',
+    'SE': '瑞典',
+    'NO': '挪威',
+    'DK': '丹麦',
+    'FI': '芬兰',
+    'PL': '波兰',
+    'RU': '俄罗斯',
+    'ZA': '南非',
+    'EG': '埃及',
+    'KE': '肯尼亚',
+    'MX': '墨西哥',
+    'AR': '阿根廷',
+    'CL': '智利',
+    'CO': '哥伦比亚',
+    'PE': '秘鲁',
+    'PH': '菲律宾',
+    'TH': '泰国',
+    'VN': '越南',
+    'ID': '印度尼西亚',
+    'MY': '马来西亚',
+    'AE': '阿联酋',
+    'SA': '沙特阿拉伯',
+    'IL': '以色列',
+    'TR': '土耳其',
+    'OTHER': '其他',
+  };
+  
+  return countryMap[code] || code;
+};
+
 const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   const { currentUser, updateTransaction, refreshFeed, setWalletBalance } = useApp();
   const { wallets } = useWallets();
@@ -394,12 +450,30 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
                               (!isRequestU && isInitiatorRefund && isToMe);
       
       if (needsMySignature) {
-        // 需要我签名：显示"交易失败，待签名 & 回退 USDT"
+        // 需要我签名：显示"签名并回退 USDT"按钮
         return (
-          <div className="mt-3 bg-orange-600 text-white p-3 rounded-xl text-center text-xs font-bold flex items-center justify-center gap-2 shadow-lg">
-            <AlertTriangle className="w-4 h-4" /> 
-            交易失败，待签名 & 回退 USDT {isRequestU ? '给交易者' : '给 Request 发起者'}
-          </div>
+          <button
+            disabled={isProcessing || !wallets[0]}
+            onClick={async () => {
+              if (!wallets[0]) {
+                alert('请先连接钱包');
+                return;
+              }
+              // Request U：如果交易者发起退回（counterpartyRefund），发起者签名（choice = 1）
+              // Request 法币：如果发起者发起退回（initiatorRefund），交易者签名（choice = 1）
+              if (isRequestU && isCounterpartyRefund) {
+                // Request U，交易者发起退回，发起者签名
+                await handleInitiatorSign(1);
+              } else if (!isRequestU && isInitiatorRefund) {
+                // Request 法币，发起者发起退回，交易者签名
+                await handleTraderPayAndSign(1);
+              }
+            }}
+            className="mt-3 w-full bg-orange-600 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            签名并回退 USDT
+          </button>
         );
       } else {
         // 其他人：显示"交易失败 & USDT 回退中"
@@ -666,6 +740,12 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
                           <span className="text-gray-500">户名:</span>
                           <span className="font-bold">{targetUser.fiatDetails?.accountName || targetUser.name}</span>
                         </div>
+                        {targetUser.fiatDetails?.country && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">国别:</span>
+                            <span className="font-bold">{getCountryName(targetUser.fiatDetails.country)}</span>
+                          </div>
+                        )}
                       </>
                     );
                   })()}

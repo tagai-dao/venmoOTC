@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUser, getUsers, getCurrentUser } from '../controllers/userController.js';
+import { getUser, getUsers, getCurrentUser, updateCurrentUser } from '../controllers/userController.js';
 import { optionalAuth, authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -15,6 +15,12 @@ router.get('/', optionalAuth, getUsers);
  * 获取当前用户信息（需要认证）
  */
 router.get('/me', authenticateToken, getCurrentUser);
+
+/**
+ * PUT /api/users/me
+ * 更新当前用户信息（需要认证）
+ */
+router.put('/me', authenticateToken, updateCurrentUser);
 
 /**
  * GET /api/users/:id

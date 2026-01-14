@@ -29,8 +29,15 @@ export async function getBNBPriceInUSDT(): Promise<number> {
   }
 
   try {
+    // 直接调用 CoinGecko API（如果遇到 CORS 或 429 错误，会使用 fallback 价格）
     const response = await fetch(
-      `${COINGECKO_API_BASE}/simple/price?ids=binancecoin&vs_currencies=usdt`
+      `${COINGECKO_API_BASE}/simple/price?ids=binancecoin&vs_currencies=usdt`,
+      {
+        // 添加请求头，但可能仍会遇到 CORS 错误
+        headers: {
+          'Accept': 'application/json',
+        },
+      }
     );
 
     if (!response.ok) {

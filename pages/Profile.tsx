@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePrivy, useWallets, useOAuthTokens, useLoginWithOAuth } from '@privy-io/react-auth';
 import { useApp } from '../context/AppContext';
-import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, ArrowUpRight, ArrowDownLeft, Globe, Loader, PenTool } from 'lucide-react';
+import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, ArrowUpRight, ArrowDownLeft, Globe, Loader, PenTool, Check, ExternalLink, Send } from 'lucide-react';
 import { Currency, formatCurrency, Privacy, TransactionType, OTCState } from '../utils';
 import QRCode from 'react-qr-code';
 import FeedItem from '../components/FeedItem';
@@ -280,10 +280,59 @@ const ProfileContent: React.FC<{
   displayedAccessToken?: string | null;
   setDisplayedAccessToken?: (token: string | null) => void;
 }> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed, ready, authenticated, privyUser, privyLogin, privyLogout, wallets = [], onAuthorizeTwitter, twitterAccessTokenStatus = 'unknown', setTwitterAccessTokenStatus, pendingTwitterAccessToken = null, pendingTwitterRefreshToken = null, displayedAccessToken = null, setDisplayedAccessToken }) => {
+  const { markAllNotificationsAsRead, refreshNotifications, unreadCount, setCurrentUser } = useApp();
   const [showMyQR, setShowMyQR] = useState(false);
   const [showSignatureTest, setShowSignatureTest] = useState(false);
   const [activeTab, setActiveTab] = useState<'activity' | 'requests'>('activity');
   const [isPrivySyncing, setIsPrivySyncing] = useState(false);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [showFiatEditModal, setShowFiatEditModal] = useState(false);
+  const [isSavingFiatDetails, setIsSavingFiatDetails] = useState(false);
+  const [fiatFormData, setFiatFormData] = useState({
+    accountName: currentUser?.fiatDetails?.accountName || '',
+    accountNumber: currentUser?.fiatDetails?.accountNumber || '',
+    bankName: currentUser?.fiatDetails?.bankName || '',
+    country: currentUser?.fiatDetails?.country || '',
+  });
+  
+  // 管理 Request 的已读状态（使用 localStorage）
+  const getReadRequests = (): Set<string> => {
+    if (!currentUser) return new Set();
+    const key = `read_requests_${currentUser.id}`;
+    const stored = localStorage.getItem(key);
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  };
+  
+  const [readRequests, setReadRequests] = useState<Set<string>>(getReadRequests());
+  
+  // 当用户切换时，重新加载已读状态
+  useEffect(() => {
+    if (currentUser) {
+      setReadRequests(getReadRequests());
+    }
+  }, [currentUser?.id]);
+  
+  const markRequestAsRead = (requestId: string) => {
+    if (!currentUser) return;
+    const newReadRequests = new Set(readRequests);
+    newReadRequests.add(requestId);
+    setReadRequests(newReadRequests);
+    const key = `read_requests_${currentUser.id}`;
+    localStorage.setItem(key, JSON.stringify(Array.from(newReadRequests)));
+  };
+  
+  const markAllRequestsAsRead = () => {
+    if (!currentUser) return;
+    const allRequestIds = new Set(pendingRequests.map(r => r.id));
+    setReadRequests(allRequestIds);
+    const key = `read_requests_${currentUser.id}`;
+    localStorage.setItem(key, JSON.stringify(Array.from(allRequestIds)));
+  };
+  
+  const isRequestRead = (requestId: string): boolean => {
+    return readRequests.has(requestId);
+  };
   const [bnbToUSDTRate, setBnbToUSDTRate] = useState<number>(300); // 默认值
   const [fiatRates, setFiatRates] = useState<Record<string, number>>({
     NGN: 1650.00,
@@ -553,6 +602,104 @@ const ProfileContent: React.FC<{
     }
   };
 
+  const handleOpenLink = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // 处理保存法币账户信息
+  const handleSaveFiatDetails = async () => {
+    if (!fiatFormData.accountName || !fiatFormData.accountNumber || !fiatFormData.bankName) {
+      alert('请填写所有必填字段（姓名、银行账号、银行名称）');
+      return;
+    }
+
+    setIsSavingFiatDetails(true);
+    try {
+      const updatedUser = await Services.users.updateCurrentUser({
+        accountName: fiatFormData.accountName,
+        accountNumber: fiatFormData.accountNumber,
+        bankName: fiatFormData.bankName,
+        country: fiatFormData.country || undefined,
+      });
+
+      // 更新当前用户信息
+      setCurrentUser(updatedUser);
+      
+      // 更新 localStorage
+      localStorage.setItem('current_user', JSON.stringify(updatedUser));
+
+      setShowFiatEditModal(false);
+      alert('✅ 法币账户信息已保存');
+    } catch (error: any) {
+      console.error('Failed to save fiat details:', error);
+      alert(`保存失败: ${error?.message || '未知错误'}`);
+    } finally {
+      setIsSavingFiatDetails(false);
+    }
+  };
+
+  // 打开编辑模态框时初始化表单数据
+  const handleOpenFiatEdit = () => {
+    setFiatFormData({
+      accountName: currentUser?.fiatDetails?.accountName || '',
+      accountNumber: currentUser?.fiatDetails?.accountNumber || '',
+      bankName: currentUser?.fiatDetails?.bankName || '',
+      country: currentUser?.fiatDetails?.country || '',
+    });
+    setShowFiatEditModal(true);
+  };
+
+  // 国别列表
+  const countries = [
+    { code: '', name: '请选择国别' },
+    { code: 'CN', name: '中国' },
+    { code: 'US', name: '美国' },
+    { code: 'GB', name: '英国' },
+    { code: 'NG', name: '尼日利亚' },
+    { code: 'VE', name: '委内瑞拉' },
+    { code: 'IN', name: '印度' },
+    { code: 'BR', name: '巴西' },
+    { code: 'JP', name: '日本' },
+    { code: 'KR', name: '韩国' },
+    { code: 'SG', name: '新加坡' },
+    { code: 'HK', name: '香港' },
+    { code: 'TW', name: '台湾' },
+    { code: 'AU', name: '澳大利亚' },
+    { code: 'CA', name: '加拿大' },
+    { code: 'DE', name: '德国' },
+    { code: 'FR', name: '法国' },
+    { code: 'IT', name: '意大利' },
+    { code: 'ES', name: '西班牙' },
+    { code: 'NL', name: '荷兰' },
+    { code: 'BE', name: '比利时' },
+    { code: 'CH', name: '瑞士' },
+    { code: 'AT', name: '奥地利' },
+    { code: 'SE', name: '瑞典' },
+    { code: 'NO', name: '挪威' },
+    { code: 'DK', name: '丹麦' },
+    { code: 'FI', name: '芬兰' },
+    { code: 'PL', name: '波兰' },
+    { code: 'RU', name: '俄罗斯' },
+    { code: 'ZA', name: '南非' },
+    { code: 'EG', name: '埃及' },
+    { code: 'KE', name: '肯尼亚' },
+    { code: 'MX', name: '墨西哥' },
+    { code: 'AR', name: '阿根廷' },
+    { code: 'CL', name: '智利' },
+    { code: 'CO', name: '哥伦比亚' },
+    { code: 'PE', name: '秘鲁' },
+    { code: 'PH', name: '菲律宾' },
+    { code: 'TH', name: '泰国' },
+    { code: 'VN', name: '越南' },
+    { code: 'ID', name: '印度尼西亚' },
+    { code: 'MY', name: '马来西亚' },
+    { code: 'AE', name: '阿联酋' },
+    { code: 'SA', name: '沙特阿拉伯' },
+    { code: 'IL', name: '以色列' },
+    { code: 'TR', name: '土耳其' },
+    { code: 'OTHER', name: '其他' },
+  ];
+
 
   if (!isAuthenticated || !currentUser) {
     return (
@@ -625,14 +772,15 @@ const ProfileContent: React.FC<{
     return true;
   });
 
-  // Updated filter: Capture all active OTC requests involving the user (excluding failed requests)
+  // 显示所有与用户相关的 OTC Request（包括失败和成功的）
   const pendingRequests = feed.filter(t => {
-      if (!t.isOTC || t.otcState === OTCState.NONE || t.otcState === OTCState.COMPLETED || t.otcState === OTCState.FAILED) return false;
+      // 只过滤掉非 OTC 交易或 NONE 状态的交易
+      if (!t.isOTC || t.otcState === OTCState.NONE) return false;
       
       const isMyReq = t.fromUser.id === currentUser.id;
       const isMyFulfillment = t.toUser?.id === currentUser.id;
 
-      // Both requester and payer should see active trades in their requests tab
+      // 显示所有与用户相关的 Request（包括发起者和交易者）
       return isMyReq || isMyFulfillment;
   });
 
@@ -649,11 +797,12 @@ const ProfileContent: React.FC<{
                       {currentUser.isVerified && <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] font-bold rounded-full mt-1">Verified X Account</span>}
                   </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 relative">
                  <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title="显示二维码">
                      <QrCode className="w-6 h-6" />
                  </button>
-                 {ready && authenticated && (
+                 {/* 测试钱包签名按钮 - 已隐藏 */}
+                 {/* {ready && authenticated && (
                    <button 
                      onClick={() => setShowSignatureTest(true)} 
                      className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" 
@@ -661,10 +810,100 @@ const ProfileContent: React.FC<{
                    >
                      <PenTool className="w-6 h-6" />
                  </button>
-                 )}
-                 <button onClick={handlePrivyLogout} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title="设置">
-                     <Settings className="w-6 h-6" />
-                 </button>
+                 )} */}
+                 <div className="relative z-50" onClick={(e) => e.stopPropagation()}>
+                   <button
+                     onClick={(e) => {
+                       e.preventDefault();
+                       e.stopPropagation();
+                       setShowSettingsMenu(!showSettingsMenu);
+                     }}
+                     className="p-2 text-gray-600 hover:bg-gray-100 rounded-full"
+                     title="设置"
+                     type="button"
+                     data-settings-button="true"
+                   >
+                       <Settings className="w-6 h-6" />
+                   </button>
+
+                   {/* 下拉设置菜单 */}
+                   {showSettingsMenu && (
+                     <>
+                       {/* 点击空白处关闭 - 使用 div 而不是 button，避免意外触发其他事件 */}
+                       <div
+                         className="fixed inset-0 z-[45] cursor-default bg-transparent"
+                         onClick={(e) => {
+                           e.preventDefault();
+                           e.stopPropagation();
+                           console.log('🔧 Closing settings menu (overlay clicked)');
+                           setShowSettingsMenu(false);
+                         }}
+                         aria-label="close settings menu overlay"
+                       />
+                       <div 
+                         className="absolute right-0 top-12 z-[50] w-52 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden mt-1"
+                         onClick={(e) => {
+                           // 防止菜单内部的点击事件冒泡到外层关闭按钮
+                           e.preventDefault();
+                           e.stopPropagation();
+                         }}
+                         onMouseDown={(e) => {
+                           // 在 mousedown 阶段也阻止事件
+                           e.preventDefault();
+                           e.stopPropagation();
+                         }}
+                       >
+                       <button
+                         type="button"
+                         onClick={(e) => {
+                           e.preventDefault();
+                           e.stopPropagation();
+                           setShowSettingsMenu(false);
+                           handleOpenLink('https://x.com/TagAIDAO');
+                         }}
+                         className="w-full px-4 py-3 text-sm font-bold text-slate-800 hover:bg-gray-50 flex items-center justify-between transition-colors"
+                       >
+                         <span className="flex items-center gap-2">
+                           <Twitter className="w-4 h-4 text-sky-500" />
+                           Twitter
+                         </span>
+                         <ExternalLink className="w-4 h-4 text-gray-400" />
+                       </button>
+
+                       <button
+                         type="button"
+                         onClick={(e) => {
+                           e.preventDefault();
+                           e.stopPropagation();
+                           setShowSettingsMenu(false);
+                           handleOpenLink('https://t.me/tagaidotfun');
+                         }}
+                         className="w-full px-4 py-3 text-sm font-bold text-slate-800 hover:bg-gray-50 flex items-center justify-between border-t border-gray-100 transition-colors"
+                       >
+                         <span className="flex items-center gap-2">
+                           <Send className="w-4 h-4 text-blue-500" />
+                           Telegram
+                         </span>
+                         <ExternalLink className="w-4 h-4 text-gray-400" />
+                       </button>
+
+                       <button
+                         type="button"
+                         onClick={async (e) => {
+                           e.preventDefault();
+                           e.stopPropagation();
+                           setShowSettingsMenu(false);
+                           await handlePrivyLogout();
+                         }}
+                         className="w-full px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-100 transition-colors"
+                       >
+                         <LogOut className="w-4 h-4" />
+                         退出应用
+                       </button>
+                       </div>
+                     </>
+                   )}
+                 </div>
               </div>
           </div>
 
@@ -756,160 +995,29 @@ const ProfileContent: React.FC<{
            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                <div className="flex justify-between items-center">
                    <h4 className="font-bold text-blue-900">Fiat Withdrawal Accounts</h4>
-                   <button className="text-xs font-bold text-blue-600 bg-white px-3 py-1 rounded-full shadow-sm">Edit</button>
+                   <button 
+                     onClick={handleOpenFiatEdit}
+                     className="text-xs font-bold text-blue-600 bg-white px-3 py-1 rounded-full shadow-sm hover:bg-blue-50 transition-colors"
+                   >
+                     Edit
+                   </button>
                </div>
                <div className="mt-3 text-sm text-blue-800">
-                   <p>{currentUser.fiatDetails?.bankName} - •••• {currentUser.fiatDetails?.accountNumber.slice(-4)}</p>
+                   {currentUser.fiatDetails ? (
+                     <p>{currentUser.fiatDetails.bankName} - •••• {currentUser.fiatDetails.accountNumber.slice(-4)}</p>
+                   ) : (
+                     <p className="text-gray-500">未设置法币账户信息</p>
+                   )}
                </div>
            </div>
        </div>
 
-       {/* Twitter API Authorization Section */}
-       {ready && authenticated && (
+       {/* Twitter API Authorization Section - 已隐藏 */}
+       {/* {ready && authenticated && (
          <div className="p-4 pb-0">
-           <div className={`p-4 rounded-xl border ${
-             twitterAccessTokenStatus === 'granted' 
-               ? 'bg-green-50 border-green-200' 
-               : twitterAccessTokenStatus === 'not_granted' || twitterAccessTokenStatus === 'unknown'
-               ? 'bg-amber-50 border-amber-200'
-               : 'bg-blue-50 border-blue-200'
-           }`}>
-               <div className="flex items-center justify-between mb-3">
-                   <div className="flex items-center gap-2">
-                       <Twitter className={`w-5 h-5 ${
-                         twitterAccessTokenStatus === 'granted' ? 'text-green-600' : 'text-amber-600'
-                       }`} />
-                       <h4 className={`font-bold ${
-                         twitterAccessTokenStatus === 'granted' ? 'text-green-900' : 'text-amber-900'
-                       }`}>
-                         Twitter API 授权状态
-                       </h4>
-                   </div>
-                   {twitterAccessTokenStatus === 'checking' && (
-                     <Loader className="w-4 h-4 animate-spin text-blue-600" />
-                   )}
-               </div>
-               <div className="text-sm mb-3">
-                   {twitterAccessTokenStatus === 'granted' ? (
-                     <div className="space-y-3">
-                       <p className="text-green-800">
-                         ✅ 已授权 Twitter API 访问。
-                       </p>
-                       
-                       {/* 直接显示 accessToken */}
-                       {displayedAccessToken && (
-                         <div className="bg-white rounded-lg p-3 border border-green-200">
-                           <div className="flex items-center justify-between mb-2">
-                             <span className="text-xs font-bold text-green-900">Access Token：</span>
-                             <button
-                               onClick={() => {
-                                 navigator.clipboard.writeText(displayedAccessToken);
-                                 alert('Access Token 已复制到剪贴板');
-                               }}
-                               className="text-xs text-green-600 hover:text-green-700 font-medium flex items-center gap-1"
-                             >
-                               <Copy className="w-3 h-3" />
-                               复制
-                             </button>
-                           </div>
-                           <div className="space-y-2">
-                             <div className="p-2 bg-gray-50 rounded border border-gray-200 break-all text-xs font-mono text-gray-800">
-                               {displayedAccessToken}
-                             </div>
-                             <div className="flex items-center gap-4 text-xs text-gray-600">
-                               <span>长度: <span className="font-bold text-green-800">{displayedAccessToken.length}</span> 字符</span>
-                             </div>
-                           </div>
-                         </div>
-                       )}
-                     </div>
-                   ) : twitterAccessTokenStatus === 'checking' ? (
-                     <p className="text-blue-800">
-                       ⏳ 正在检查授权状态...
-                     </p>
-                   ) : (
-                     <div className="space-y-2">
-                       <p className="text-amber-800">
-                         ⚠️ 未授权 Twitter API 访问。要发布推文到 X，您需要：
-                       </p>
-                       <ol className="list-decimal list-inside text-amber-800 space-y-1 ml-2">
-                         <li>点击下方按钮授权 Twitter API 访问，或</li>
-                         <li>配置 X_BEARER_TOKEN 环境变量（供管理员配置）</li>
-                       </ol>
-                     </div>
-                   )}
-               </div>
-               {twitterAccessTokenStatus !== 'granted' && (
-                 <div className="space-y-2">
-                   <button
-                     onClick={onAuthorizeTwitter}
-                     disabled={twitterAccessTokenStatus === 'checking' || !ready || !authenticated}
-                     className={`w-full px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
-                       twitterAccessTokenStatus === 'checking' || !ready || !authenticated
-                         ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                         : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
-                     }`}
-                   >
-                     {twitterAccessTokenStatus === 'checking' ? '授权中...' : '授权 Twitter API 访问'}
-                   </button>
-                   
-                   {/* 调试信息（开发环境） */}
-                   {process.env.NODE_ENV === 'development' && (
-                     <div className="text-xs text-gray-500 space-y-1">
-                       <p>💡 提示：确保在 Privy Dashboard 中：</p>
-                       <ol className="list-decimal list-inside ml-2 space-y-0.5">
-                         <li>Settings → Login Methods → Twitter</li>
-                         <li>启用 "Return OAuth tokens"</li>
-                         <li>确保 Scopes 包含 tweet.write 和 offline.access</li>
-                       </ol>
-                       <button
-                         onClick={async () => {
-                           try {
-                             // 测试：检查 accessToken 是否已存储到后端
-                             const savedUser = Services.auth.getCurrentUser();
-                             if (savedUser) {
-                               const response = await fetch('http://localhost:3001/api/users/me', {
-                                 headers: {
-                                   'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-                                 },
-                               });
-                               
-                               if (!response.ok) {
-                                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                               }
-                               
-                               const data = await response.json();
-                               console.log('🔍 User data from backend:', data);
-                               console.log('🔍 Twitter auth status:', data.twitterAuth);
-                               
-                               if (data.twitterAuth?.hasAccessToken) {
-                                 alert('✅ Twitter accessToken 已存储到后端！\n\n可以尝试创建 Request 测试推文发布功能。');
-                                 setTwitterAccessTokenStatus?.('granted');
-                                 // 注意：后端不会返回完整的 accessToken（安全考虑），所以这里只更新状态
-                                 // 如果用户想要看到完整的 token，需要重新授权
-                               } else {
-                                 alert('⚠️ Twitter accessToken 未存储到后端。\n\n请点击"授权 Twitter API 访问"按钮重新授权。');
-                                 setTwitterAccessTokenStatus?.('not_granted');
-                               }
-                             } else {
-                               alert('用户未登录');
-                             }
-                           } catch (error: any) {
-                             console.error('❌ Test failed:', error);
-                             alert(`测试失败: ${error.message}\n\n请查看控制台日志获取详细信息。`);
-                           }
-                         }}
-                         className="mt-2 w-full px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg transition"
-                       >
-                         测试：检查 accessToken 存储状态
-                       </button>
-                     </div>
-                   )}
-                 </div>
-               )}
-           </div>
-       </div>
-       )}
+           ... Twitter API 授权状态模块 ...
+         </div>
+       )} */}
 
        {/* Tabs */}
        <div className="px-4 mt-6">
@@ -925,9 +1033,9 @@ const ProfileContent: React.FC<{
                  className={`pb-3 text-sm font-bold transition-colors relative ${activeTab === 'requests' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 hover:text-gray-600'}`}
                >
                  Requests
-                 {pendingRequests.length > 0 && (
+                 {unreadCount > 0 && (
                      <span className="absolute -top-1 -right-5 bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1 rounded-full flex items-center justify-center border-2 border-white">
-                         {pendingRequests.length}
+                         {unreadCount}
                      </span>
                  )}
                </button>
@@ -1043,9 +1151,69 @@ const ProfileContent: React.FC<{
            {activeTab === 'requests' && (
                <div className="border-t border-gray-100 -mx-4 sm:mx-0">
                    {pendingRequests.length > 0 ? (
-                       pendingRequests.map(t => (
-                           <FeedItem key={t.id} transaction={t} />
-                       ))
+                       <>
+                           <div className="px-4 pt-4 pb-2 flex justify-end">
+                               <button
+                                   onClick={async () => {
+                                       setIsMarkingAllRead(true);
+                                       try {
+                                           // 只标记所有 Request 为已读，不影响通知
+                                           markAllRequestsAsRead();
+                                           // 同时标记通知为已读（这样小红标会清零）
+                                           await markAllNotificationsAsRead();
+                                           await refreshNotifications();
+                                           alert('✅ 已标记全部 Request 和通知为已读');
+                                       } catch (error: any) {
+                                           console.error('Failed to mark all as read:', error);
+                                           alert(`标记失败: ${error?.message || '未知错误'}`);
+                                       } finally {
+                                           setIsMarkingAllRead(false);
+                                       }
+                                   }}
+                                   disabled={isMarkingAllRead}
+                                   className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                               >
+                                   {isMarkingAllRead ? (
+                                       <>
+                                           <Loader className="w-3 h-3 animate-spin" />
+                                           处理中...
+                                       </>
+                                   ) : (
+                                       '全部已读'
+                                   )}
+                               </button>
+                           </div>
+                           {pendingRequests.map(t => (
+                               <div key={t.id} className="relative">
+                                   <FeedItem transaction={t} />
+                                   {/* 已读标记 - 显示在右上角 */}
+                                   <button
+                                       onClick={(e) => {
+                                           e.stopPropagation();
+                                           if (!isRequestRead(t.id)) {
+                                               markRequestAsRead(t.id);
+                                           }
+                                       }}
+                                       className={`absolute top-4 right-4 z-10 p-1.5 rounded-full transition-all ${
+                                           isRequestRead(t.id) 
+                                               ? 'bg-green-50 hover:bg-green-100' 
+                                               : 'bg-white/80 hover:bg-white shadow-sm'
+                                       }`}
+                                       title={isRequestRead(t.id) ? '已读' : '点击标记为已读'}
+                                   >
+                                       {isRequestRead(t.id) ? (
+                                           <Check className="w-4 h-4 text-green-600" />
+                                       ) : (
+                                           <div className="w-4 h-4 border-2 border-gray-300 rounded-full" />
+                                       )}
+                                   </button>
+                                   {/* 未读指示点 */}
+                                   {!isRequestRead(t.id) && (
+                                       <div className="absolute top-2 right-2 z-10 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-white" />
+                                   )}
+                               </div>
+                           ))}
+                       </>
                    ) : (
                        <div className="p-8 text-center text-gray-400">
                             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🎉</div>
@@ -1084,6 +1252,121 @@ const ProfileContent: React.FC<{
        {/* Signature Test Modal */}
        {showSignatureTest && (
          <SignatureTestModal onClose={() => setShowSignatureTest(false)} />
+       )}
+
+       {/* Fiat Account Edit Modal */}
+       {showFiatEditModal && (
+         <div 
+           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" 
+           onClick={() => setShowFiatEditModal(false)}
+         >
+           <div 
+             className="bg-white rounded-3xl p-6 w-full max-w-md flex flex-col max-h-[90vh] overflow-y-auto" 
+             onClick={e => e.stopPropagation()}
+           >
+             <div className="flex justify-between items-center mb-6">
+               <h2 className="text-xl font-bold text-slate-900">编辑法币账户信息</h2>
+               <button
+                 onClick={() => setShowFiatEditModal(false)}
+                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                 disabled={isSavingFiatDetails}
+               >
+                 <span className="text-2xl text-gray-400">×</span>
+               </button>
+             </div>
+
+             <div className="space-y-4">
+               {/* 姓名 */}
+               <div>
+                 <label className="block text-sm font-bold text-slate-700 mb-2">
+                   姓名 <span className="text-red-500">*</span>
+                 </label>
+                 <input
+                   type="text"
+                   value={fiatFormData.accountName}
+                   onChange={(e) => setFiatFormData({ ...fiatFormData, accountName: e.target.value })}
+                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                   placeholder="请输入账户持有人姓名"
+                   disabled={isSavingFiatDetails}
+                 />
+               </div>
+
+               {/* 银行账号 */}
+               <div>
+                 <label className="block text-sm font-bold text-slate-700 mb-2">
+                   银行账号 <span className="text-red-500">*</span>
+                 </label>
+                 <input
+                   type="text"
+                   value={fiatFormData.accountNumber}
+                   onChange={(e) => setFiatFormData({ ...fiatFormData, accountNumber: e.target.value })}
+                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                   placeholder="请输入银行账号"
+                   disabled={isSavingFiatDetails}
+                 />
+               </div>
+
+               {/* 银行名称 */}
+               <div>
+                 <label className="block text-sm font-bold text-slate-700 mb-2">
+                   银行名称 <span className="text-red-500">*</span>
+                 </label>
+                 <input
+                   type="text"
+                   value={fiatFormData.bankName}
+                   onChange={(e) => setFiatFormData({ ...fiatFormData, bankName: e.target.value })}
+                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                   placeholder="请输入银行名称"
+                   disabled={isSavingFiatDetails}
+                 />
+               </div>
+
+               {/* 国别 */}
+               <div>
+                 <label className="block text-sm font-bold text-slate-700 mb-2">
+                   国别
+                 </label>
+                 <select
+                   value={fiatFormData.country}
+                   onChange={(e) => setFiatFormData({ ...fiatFormData, country: e.target.value })}
+                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                   disabled={isSavingFiatDetails}
+                 >
+                   {countries.map((country) => (
+                     <option key={country.code} value={country.code}>
+                       {country.name}
+                     </option>
+                   ))}
+                 </select>
+               </div>
+             </div>
+
+             {/* 按钮组 */}
+             <div className="flex gap-3 mt-6">
+               <button
+                 onClick={() => setShowFiatEditModal(false)}
+                 className="flex-1 px-4 py-3 border border-gray-200 rounded-xl font-bold text-slate-700 hover:bg-gray-50 transition-colors"
+                 disabled={isSavingFiatDetails}
+               >
+                 取消
+               </button>
+               <button
+                 onClick={handleSaveFiatDetails}
+                 disabled={isSavingFiatDetails || !fiatFormData.accountName || !fiatFormData.accountNumber || !fiatFormData.bankName}
+                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+               >
+                 {isSavingFiatDetails ? (
+                   <>
+                     <Loader className="w-4 h-4 animate-spin" />
+                     保存中...
+                   </>
+                 ) : (
+                   '保存'
+                 )}
+               </button>
+             </div>
+           </div>
+         </div>
        )}
     </div>
   );

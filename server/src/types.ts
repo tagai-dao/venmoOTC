@@ -41,6 +41,7 @@ export interface User {
     bankName: string;
     accountNumber: string;
     accountName: string;
+    country?: string;
   };
 }
 

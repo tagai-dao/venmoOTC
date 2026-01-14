@@ -21,6 +21,7 @@ export class UserRepository {
         bankName: row.bank_name,
         accountNumber: row.account_number,
         accountName: row.account_name,
+        country: row.country || undefined,
       } : undefined,
       // twitterAccessToken 存储在数据库中，但不包含在 User 类型中（安全考虑）
       // 需要时直接从数据库查询
@@ -225,6 +226,10 @@ export class UserRepository {
       if (updates.fiatDetails.accountName !== undefined) {
         fields.push(`account_name = ?`);
         values.push(updates.fiatDetails.accountName);
+      }
+      if (updates.fiatDetails.country !== undefined) {
+        fields.push(`country = ?`);
+        values.push(updates.fiatDetails.country);
       }
     }
     if ((updates as any).twitterAccessToken !== undefined) {

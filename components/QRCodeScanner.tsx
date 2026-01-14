@@ -12,6 +12,38 @@ const QRCodeScanner: React.FC<Props> = ({ onClose, onScan }) => {
   const [permissionError, setPermissionError] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorType, setErrorType] = useState<'permission' | 'not_found' | 'not_allowed' | 'unknown'>('unknown');
+
+  // 检查摄像头权限状态
+  const checkCameraPermission = async (): Promise<boolean> => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setErrorType('not_found');
+        setErrorMessage('您的浏览器不支持摄像头访问');
+        return false;
+      }
+
+      // 检查权限状态（如果浏览器支持）
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const permissionStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+          if (permissionStatus.state === 'denied') {
+            setErrorType('permission');
+            setErrorMessage('摄像头权限已被拒绝，请在浏览器设置中允许摄像头访问');
+            return false;
+          }
+        } catch (e) {
+          // 某些浏览器可能不支持 permissions.query，继续尝试
+          console.log('Permission query not supported, continuing...');
+        }
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Error checking camera permission:', err);
+      return false;
+    }
+  };
 
   const stopScanning = async () => {
     if (scannerRef.current) {
@@ -28,96 +60,121 @@ const QRCodeScanner: React.FC<Props> = ({ onClose, onScan }) => {
     }
   };
 
-  useEffect(() => {
-    let isMounted = true;
-    
-    const startScanning = async () => {
+  // 启动扫描的核心逻辑
+  const attemptStartScanning = async (isMounted: boolean) => {
+    try {
+      // 先检查权限
+      const hasPermission = await checkCameraPermission();
+      if (!hasPermission) {
+        if (isMounted) {
+          setPermissionError(true);
+        }
+        return;
+      }
+
+      console.log('🔍 Starting QR scanner...');
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      scannerRef.current = html5QrCode;
+
+      // 配置扫描选项
+      const config = {
+        fps: 10,
+        qrbox: function(viewfinderWidth: number, viewfinderHeight: number) {
+          const minEdgePercentage = 0.7;
+          const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+          const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+          return { width: qrboxSize, height: qrboxSize };
+        },
+        aspectRatio: 1.0,
+        disableFlip: false
+      };
+
+      // 扫描成功回调
+      const onScanSuccess = (decodedText: string, decodedResult: any) => {
+        console.log('✅ QR Code scanned:', decodedText);
+        if (isMounted) {
+          stopScanning();
+          onScan(decodedText);
+          onClose();
+        }
+      };
+
+      // 扫描错误回调（忽略，继续扫描）
+      const onScanError = (errorMessage: string) => {
+        // 忽略扫描错误，继续扫描
+      };
+
+      // 尝试启动扫描器：先尝试后置摄像头，失败则尝试前置摄像头
       try {
-        console.log('🔍 Starting QR scanner...');
-        const html5QrCode = new Html5Qrcode("qr-reader");
-        scannerRef.current = html5QrCode;
-
-        // 配置扫描选项 - 使用更宽松的配置以提高识别率
-        const config = {
-          fps: 10,
-          qrbox: function(viewfinderWidth: number, viewfinderHeight: number) {
-            // 动态计算扫描框大小，使用屏幕的 70%
-            const minEdgePercentage = 0.7;
-            const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-            const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-            return {
-              width: qrboxSize,
-              height: qrboxSize
-            };
-          },
-          aspectRatio: 1.0,
-          disableFlip: false
-        };
-
-        // 扫描成功回调
-        const onScanSuccess = (decodedText: string, decodedResult: any) => {
-          console.log('✅ QR Code scanned:', decodedText);
-          if (isMounted) {
-            stopScanning();
-            onScan(decodedText);
-            onClose();
-          }
-        };
-
-        // 扫描错误回调（忽略，继续扫描）
-        const onScanError = (errorMessage: string) => {
-          // 只在调试时输出错误
-          // console.log('Scan error (ignored):', errorMessage);
-        };
-
-        // 尝试启动扫描器：先尝试后置摄像头，失败则尝试前置摄像头
+        console.log('📷 Trying rear camera (environment)...');
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          config,
+          onScanSuccess,
+          onScanError
+        );
+        if (isMounted) {
+          setScanning(true);
+          console.log('✅ QR scanner started successfully with rear camera');
+        }
+      } catch (rearCameraError: any) {
+        console.warn('⚠️ Rear camera failed, trying front camera...', rearCameraError);
         try {
-          console.log('📷 Trying rear camera (environment)...');
           await html5QrCode.start(
-            { facingMode: "environment" },
+            { facingMode: "user" },
             config,
             onScanSuccess,
             onScanError
           );
           if (isMounted) {
             setScanning(true);
-            console.log('✅ QR scanner started successfully with rear camera');
+            console.log('✅ QR scanner started successfully with front camera');
           }
-        } catch (rearCameraError: any) {
-          console.warn('⚠️ Rear camera failed, trying front camera...', rearCameraError);
-          try {
-            await html5QrCode.start(
-              { facingMode: "user" }, // 前置摄像头
-              config,
-              onScanSuccess,
-              onScanError
-            );
-            if (isMounted) {
-              setScanning(true);
-              console.log('✅ QR scanner started successfully with front camera');
-            }
-          } catch (frontCameraError: any) {
-            // 如果前置摄像头也失败，尝试使用默认摄像头
-            console.warn('⚠️ Front camera failed, trying default camera...', frontCameraError);
-            await html5QrCode.start(
-              undefined, // 使用默认摄像头
-              config,
-              onScanSuccess,
-              onScanError
-            );
-            if (isMounted) {
-              setScanning(true);
-              console.log('✅ QR scanner started successfully with default camera');
-            }
+        } catch (frontCameraError: any) {
+          console.warn('⚠️ Front camera failed, trying default camera...', frontCameraError);
+          await html5QrCode.start(
+            undefined,
+            config,
+            onScanSuccess,
+            onScanError
+          );
+          if (isMounted) {
+            setScanning(true);
+            console.log('✅ QR scanner started successfully with default camera');
           }
-        }
-      } catch (err: any) {
-        console.error("❌ Scanner error:", err);
-        if (isMounted) {
-          setPermissionError(true);
-          setErrorMessage(err.message || '无法启动摄像头，请检查权限设置');
         }
       }
+    } catch (err: any) {
+      console.error("❌ Scanner error:", err);
+      if (isMounted) {
+        setPermissionError(true);
+        
+        // 根据错误类型设置更具体的错误信息
+        const errorMsg = err.message || err.toString() || '';
+        const errorStr = errorMsg.toLowerCase();
+        
+        if (errorStr.includes('permission') || errorStr.includes('denied') || errorStr.includes('not allowed')) {
+          setErrorType('permission');
+          setErrorMessage('摄像头权限被拒绝。请在浏览器设置中允许摄像头访问，然后刷新页面重试。');
+        } else if (errorStr.includes('not found') || errorStr.includes('no device')) {
+          setErrorType('not_found');
+          setErrorMessage('未检测到摄像头设备，请确保您的设备已连接摄像头。');
+        } else if (errorStr.includes('not readable') || errorStr.includes('could not start')) {
+          setErrorType('not_allowed');
+          setErrorMessage('摄像头无法启动，可能被其他应用占用。请关闭其他使用摄像头的应用后重试。');
+        } else {
+          setErrorType('unknown');
+          setErrorMessage(err.message || '无法启动摄像头，请检查权限设置和设备连接');
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const startScanning = async () => {
+      await attemptStartScanning(isMounted);
     };
 
     // 延迟一点启动，确保 DOM 已渲染
@@ -149,16 +206,51 @@ const QRCodeScanner: React.FC<Props> = ({ onClose, onScan }) => {
             style={{ position: 'relative' }}
           />
         ) : (
-          <div className="text-white text-center p-6">
+          <div className="text-white text-center p-6 max-w-md mx-auto">
             <Camera className="w-12 h-12 mx-auto mb-4 text-gray-500" />
-            <p className="mb-2">摄像头访问被拒绝或不可用</p>
-            {errorMessage && <p className="text-sm text-gray-400">{errorMessage}</p>}
-            <button
-              onClick={onClose}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
-            >
-              关闭
-            </button>
+            <p className="mb-2 font-bold text-lg">摄像头访问被拒绝或不可用</p>
+            {errorMessage && (
+              <p className="text-sm text-gray-300 mb-4 leading-relaxed">{errorMessage}</p>
+            )}
+            
+            {/* 根据错误类型显示不同的解决建议 */}
+            {errorType === 'permission' && (
+              <div className="text-left bg-gray-800/50 rounded-lg p-4 mb-4 text-xs text-gray-300">
+                <p className="font-bold mb-2">解决步骤：</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>点击浏览器地址栏左侧的锁图标或信息图标</li>
+                  <li>找到"摄像头"或"Camera"权限设置</li>
+                  <li>选择"允许"或"Allow"</li>
+                  <li>刷新页面后重试</li>
+                </ul>
+              </div>
+            )}
+            
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={async () => {
+                  // 重置错误状态并重试
+                  setPermissionError(false);
+                  setErrorMessage('');
+                  setErrorType('unknown');
+                  // 先停止之前的扫描（如果有）
+                  await stopScanning();
+                  // 延迟一点再启动，确保状态已更新
+                  setTimeout(() => {
+                    attemptStartScanning(true);
+                  }, 100);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition font-medium"
+              >
+                重试
+              </button>
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
+              >
+                关闭
+              </button>
+            </div>
           </div>
         )}
       </div>
