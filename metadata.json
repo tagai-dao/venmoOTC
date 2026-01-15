@@ -1,5 +1,5 @@
 {
-  "name": "VenmoOTC",
+  "name": "TagPay",
   "description": "A social payment app blending classic P2P payments with USDT/Fiat OTC trading workflows.",
   "requestFramePermissions": [
     "camera"

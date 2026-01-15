@@ -3,7 +3,9 @@ import { Currency, Transaction, User } from './utils';
 // API 基础地址
 // 如果需要更改端口，请直接修改下面的地址
 // 例如：如果后端运行在 3001 端口，改为 'http://localhost:3001'
-const API_BASE_URL = 'http://localhost:3001';
+// 优先使用环境变量 VITE_API_URL，没配置时回退到本地后端
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // API 请求辅助函数
 async function apiRequest<T>(
@@ -63,8 +65,11 @@ async function apiRequest<T>(
         return data;
     } catch (error: any) {
         if (error instanceof TypeError && error.message.includes('fetch')) {
-            console.error('❌ Network error - 无法连接到服务器。请确保服务器正在运行。');
-            throw new Error('无法连接到服务器。请确保服务器正在运行在 http://localhost:3001');
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+            console.error('❌ Network error - 无法连接到服务器。');
+            console.error('❌ API URL:', apiUrl);
+            console.error('❌ Environment VITE_API_URL:', import.meta.env.VITE_API_URL);
+            throw new Error(`无法连接到服务器。\n\n当前 API URL: ${apiUrl}\n\n请检查：\n1. 环境变量 VITE_API_URL 是否正确配置\n2. API 服务器是否正在运行\n3. 网络连接是否正常`);
         }
         throw error;
     }

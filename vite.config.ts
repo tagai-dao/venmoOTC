@@ -24,7 +24,6 @@ export default defineConfig(({ mode }) => {
       },
       optimizeDeps: {
         include: ['ethers', '@privy-io/react-auth'],
-        exclude: [],
         esbuildOptions: {
           target: 'es2020'
         }
@@ -33,6 +32,12 @@ export default defineConfig(({ mode }) => {
         commonjsOptions: {
           include: [/node_modules/],
           transformMixedEsModules: true
+        },
+        rollupOptions: {
+          // 不将 Solana 依赖标记为 external，让 Vite 正常处理
+          output: {
+            manualChunks: undefined
+          }
         }
       }
     };

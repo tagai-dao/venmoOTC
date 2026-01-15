@@ -1,0 +1,25 @@
+{
+  "name": "venmootc-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "VenmoOTC Backend API - Cloudflare Workers",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20240101.0",
+    "hono": "^3.12.0",
+    "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
+    "ethers": "^6.9.0",
+    "jsonwebtoken": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/jsonwebtoken": "^9.0.10",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.0.0"
+  }
+}

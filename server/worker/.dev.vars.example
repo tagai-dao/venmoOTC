@@ -1,0 +1,29 @@
+# 本地开发环境变量示例
+# 复制此文件为 .dev.vars 并填入实际值
+
+# JWT 密钥
+JWT_SECRET=your_jwt_secret_here
+
+# Privy 配置
+PRIVY_APP_ID=your_privy_app_id
+PRIVY_APP_SECRET=your_privy_app_secret
+
+# 区块链配置
+BNB_CHAIN_RPC_URL=https://bsc-dataseed.binance.org/
+USDT_CONTRACT_ADDRESS=0x55d398326f99059fF775485246999027B3197955
+MULTISIG_CONTRACT_ADDRESS=0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6
+PRIVATE_KEY=your_private_key_here
+
+# Twitter 配置
+TWITTER_CLIENT_ID=your_twitter_client_id
+TWITTER_CLIENT_SECRET=your_twitter_client_secret
+
+# 前端 URL
+FRONTEND_URL=http://localhost:3000
+
+# X (Twitter) API 配置（可选）
+# X_API_KEY=
+# X_API_SECRET=
+# X_ACCESS_TOKEN=
+# X_ACCESS_TOKEN_SECRET=
+# X_BEARER_TOKEN=

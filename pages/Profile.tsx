@@ -681,7 +681,7 @@ const ProfileContent: React.FC<{
       localStorage.removeItem('privy_twitter_username');
       
       console.log('✅ 退出成功：Privy 和应用登录都已退出');
-      console.log('📄 页面将返回到欢迎页面（Welcome to VenmoOTC）');
+      console.log('📄 页面将返回到欢迎页面（Welcome to TagPay）');
       
       // 注意：由于 logout() 已经设置了 setIsAuthenticated(false)，
       // App.tsx 会自动检测到 !isAuthenticated 并显示 Profile 页面的欢迎界面
@@ -806,9 +806,9 @@ const ProfileContent: React.FC<{
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white">
          <div className="w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center mb-6 shadow-xl shadow-blue-500/20">
-             <span className="text-white font-bold text-3xl italic">V</span>
+             <span className="text-white font-bold text-3xl italic">T</span>
          </div>
-         <h1 className="text-2xl font-bold mb-2">Welcome to VenmoOTC</h1>
+         <h1 className="text-2xl font-bold mb-2">Welcome to TagPay</h1>
          <p className="text-gray-500 text-center mb-8">The social way to pay and trade stablecoins.</p>
          
          <div className="w-full max-w-xs space-y-3">
@@ -1006,11 +1006,6 @@ const ProfileContent: React.FC<{
                            setShowSettingsMenu(false);
                            // 执行退出逻辑
                            await handlePrivyLogout();
-                         }}
-                         onClick={(e) => {
-                           // 防止默认行为和事件冒泡（作为备用处理）
-                           e.preventDefault();
-                           e.stopPropagation();
                          }}
                          className="w-full px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-100 transition-colors"
                        >

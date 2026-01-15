@@ -1,0 +1,38 @@
+# Cloudflare Workers 配置文件
+
+name = "venmootc-api"
+main = "server/worker/src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 数据库绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "venmootc-db"
+database_id = "b30c6c46-88d7-4e6b-80c1-4df1079c4642"
+
+# 路由配置（可选，用于自定义域名）
+# routes = [
+#   { pattern = "api.yourdomain.com", zone_name = "yourdomain.com" }
+# ]
+
+# 非敏感环境变量
+# 敏感变量使用 wrangler secret put 命令设置
+[vars]
+FRONTEND_URL = "https://pay.tagai.fun"
+BNB_CHAIN_RPC_URL = "https://bsc-dataseed.binance.org/"
+USDT_CONTRACT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955"
+MULTISIG_CONTRACT_ADDRESS = "0x7989D4b7ABCA813cBA8c87688C3330eb345E3cf6"
+PRIVY_APP_ID = "cmdo1m1zt004ljl0kmspeb8rn"
+TWITTER_CLIENT_ID = "ZXRMRVpUV2ZKNFdVekZzNklPNU46MTpjaQ"
+
+# 注意：以下敏感变量应使用 wrangler secret put 设置，不要写在这里：
+# - JWT_SECRET
+# - PRIVY_APP_SECRET
+# - PRIVATE_KEY
+# - TWITTER_CLIENT_SECRET
+# - X_API_KEY
+# - X_API_SECRET
+# - X_ACCESS_TOKEN
+# - X_ACCESS_TOKEN_SECRET
+# - X_BEARER_TOKEN
