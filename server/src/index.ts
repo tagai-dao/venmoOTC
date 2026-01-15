@@ -29,11 +29,20 @@ if (config.nodeEnv === 'development') {
       return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     credentials: true,
+    // 添加更多 CORS 头部以支持不同浏览器
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400, // 24小时
   }));
 } else {
   app.use(cors({
     origin: config.frontendUrl,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400,
   }));
 }
 

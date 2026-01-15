@@ -182,6 +182,10 @@ const PrivyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         // Session 配置：确保登录状态持久化
         // Privy 默认使用 HTTP-only cookies 持久化 session，刷新页面后会自动恢复
         // Twitter 登录状态也会自动持久化，无需额外配置
+        // 浏览器兼容性配置
+        mfa: {
+          noPromptOnMfaRequired: false,
+        },
         // 支持的链配置（BSC）
         supportedChains: [
           {

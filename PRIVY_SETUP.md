@@ -29,12 +29,17 @@ VITE_PRIVY_APP_ID=你的_privy_app_id
 1. 访问 [Privy Dashboard](https://dashboard.privy.io/)
 2. 选择您的应用
 3. 进入 **Settings** > **Redirect URIs**
-4. 添加以下回调 URL：
-   - `http://localhost:3000` （开发环境）
+4. 添加以下回调 URL（**必须全部添加**）：
+   - `http://localhost:3000` （开发环境 - localhost）
    - `http://localhost:3000/` （带斜杠）
+   - `http://127.0.0.1:3000` （开发环境 - 127.0.0.1）
+   - `http://127.0.0.1:3000/` （带斜杠）
    - 如果部署到生产环境，添加生产环境的 URL
 
-**注意**：回调 URL 必须完全匹配，包括协议（http/https）、端口号和路径。
+**重要提示**：
+- 回调 URL 必须完全匹配，包括协议（http/https）、端口号和路径
+- `localhost` 和 `127.0.0.1` 被视为不同的域名，必须分别配置
+- 如果用户通过 `http://127.0.0.1:3000` 访问，但只配置了 `localhost`，登录会失败
 
 ### 4. 配置 Twitter OAuth（可选）
 

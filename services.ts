@@ -31,6 +31,7 @@ async function apiRequest<T>(
         const response = await fetch(url, {
             ...options,
             headers,
+            credentials: 'include', // 确保发送 cookies，提高浏览器兼容性
         });
 
         console.log('📥 API Response status:', response.status, response.statusText);

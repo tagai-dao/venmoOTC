@@ -147,8 +147,7 @@ const ProfileWithPrivy: React.FC<{
                 // 清除待处理的 accessToken（已经发送到后端）
                 setPendingTwitterAccessToken(null);
                 
-                // 使用 alert 显示成功信息
-                alert(`✅ Twitter 登录成功！\n\nAccess Token 已获取并存储到后端\n\n长度: ${accessToken.length} 字符`);
+                // 登录成功，无需显示弹窗，直接进入主页面
               } catch (error: any) {
                 console.error('❌ 发送 accessToken 到后端失败:', error);
                 console.log('ℹ️ AccessToken 已保存，将在下次同步时重试');
@@ -156,13 +155,13 @@ const ProfileWithPrivy: React.FC<{
               }
             } else {
               // 用户还未登录，accessToken 会在 syncPrivyUser 中发送
-              console.log('ℹ️ 用户还未登录，accessToken 将在同步时发送到后端');
-              alert(`✅ Twitter 登录成功！\n\nAccess Token 已获取\n\n长度: ${accessToken.length} 字符\n\n将在登录同步时存储到后端`);
+              console.log('ℹ️ 用户还未登录，Access Token 已获取，将在同步时发送到后端');
+              // 登录成功，无需显示弹窗，直接进入主页面
             }
           } catch (error: any) {
             console.error('❌ 检查用户状态失败:', error);
             console.log('ℹ️ AccessToken 已保存，将在下次同步时发送');
-            alert(`✅ Twitter 登录成功！\n\nAccess Token 已获取\n\n长度: ${accessToken.length} 字符\n\n将在登录同步时存储到后端`);
+            // 登录成功，无需显示弹窗，直接进入主页面
           }
         } else {
           console.error('❌ Twitter OAuth token granted but accessToken is missing!');
@@ -285,6 +284,7 @@ const ProfileContent: React.FC<{
   const [showSignatureTest, setShowSignatureTest] = useState(false);
   const [activeTab, setActiveTab] = useState<'activity' | 'requests'>('activity');
   const [isPrivySyncing, setIsPrivySyncing] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false); // 登录按钮加载状态
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showFiatEditModal, setShowFiatEditModal] = useState(false);
@@ -534,16 +534,54 @@ const ProfileContent: React.FC<{
   }, [ready, authenticated, privyUser, isAuthenticated, currentUser, login, wallets, pendingTwitterAccessToken]);
 
   const handlePrivyLogin = async () => {
+    // 防止重复点击
+    if (isLoggingIn) {
+      console.log('⚠️ Login already in progress, ignoring click');
+      return;
+    }
+
     if (!ready) {
       console.warn('⚠️ Privy is not ready yet');
-      throw new Error('钱包服务正在初始化，请稍候几秒钟后重试');
+      alert('钱包服务正在初始化，请稍候几秒钟后重试');
+      return;
     }
     
+    setIsLoggingIn(true);
+    
+    // 检测浏览器信息
+    const browserInfo = {
+      userAgent: navigator.userAgent,
+      browser: (() => {
+        if (navigator.userAgent.includes('Firefox')) return 'Firefox';
+        if (navigator.userAgent.includes('Chrome')) return 'Chrome';
+        if (navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome')) return 'Safari';
+        return 'Unknown';
+      })(),
+      cookiesEnabled: navigator.cookieEnabled,
+      localStorageAvailable: (() => {
+        try {
+          localStorage.setItem('test', 'test');
+          localStorage.removeItem('test');
+          return true;
+        } catch {
+          return false;
+        }
+      })(),
+    };
+    
     try {
-      console.log('🔗 Attempting to connect Privy wallet via Twitter...');
+      console.log('🔗 [LOGIN] 按钮被点击，开始登录流程...');
       console.log('📍 Current URL:', window.location.href);
       console.log('🔑 Privy App ID:', import.meta.env.VITE_PRIVY_APP_ID ? '已配置' : '未配置');
+      console.log('🌐 Browser Info:', browserInfo);
       console.log('📝 登录流程：\n1. 调用 privyLogin() 发起 Twitter 登录\n2. 跳转到 Twitter 登录页面\n3. 用户完成登录后，Twitter 回调到 Privy\n4. Privy 通过 useOAuthTokens 回调将 accessToken 传到前端\n5. 前端显示 accessToken');
+      
+      // 检查 Privy 函数是否存在
+      if (typeof privyLogin !== 'function') {
+        throw new Error('privyLogin 函数不可用，请检查 Privy 配置');
+      }
+      
+      console.log('🚀 调用 privyLogin({ loginMethod: "twitter" })...');
       
       // 直接使用 Twitter 登录方式
       await privyLogin({ loginMethod: 'twitter' });
@@ -558,47 +596,110 @@ const ProfileContent: React.FC<{
         stack: error?.stack
       });
       
+      // 获取当前 origin
+      const currentOrigin = window.location.origin;
+      const currentUrl = window.location.href;
+      
+      console.error('📍 当前访问地址:', currentOrigin);
+      console.error('📍 完整 URL:', currentUrl);
+      
+      // 检查是否是 Origin not allowed 错误（这是最常见的错误）
+      if (error?.message?.includes('Origin not allowed') || 
+          error?.message?.includes('403') ||
+          error?.code === 'n16' ||
+          (error?.message && error.message.includes('not allowed'))) {
+        const errorMsg = `❌ 登录失败：Origin 不被允许\n\n当前访问地址：${currentOrigin}\n\n🔧 解决方法：\n1. 访问 Privy Dashboard: https://dashboard.privy.io/\n2. 选择您的应用\n3. 进入 Settings > Redirect URIs\n4. 添加以下 URL（必须全部添加）：\n   • ${currentOrigin}\n   • ${currentOrigin}/\n   • http://localhost:3000\n   • http://localhost:3000/\n   • http://127.0.0.1:3000\n   • http://127.0.0.1:3000/\n5. 点击 Save 保存\n6. 等待几秒钟让配置生效\n7. 刷新页面后重试\n\n⚠️ 注意：localhost 和 127.0.0.1 被视为不同的域名，必须分别配置！`;
+        alert(errorMsg);
+        setIsLoggingIn(false);
+        return;
+      }
+      
       // 检查是否是回调 URL 配置错误
       if (error?.message?.includes('Something went wrong') || 
           error?.message?.includes('weren\'t able to give access')) {
-        const errorMsg = `登录失败：回调 URL 配置错误\n\n请检查：\n1. Privy Dashboard > Settings > Redirect URIs\n2. 确保添加了：http://localhost:3000\n3. 保存后等待几秒再重试\n\n详细步骤请参考 PRIVY_SETUP.md`;
+        const errorMsg = `登录失败：回调 URL 配置错误\n\n当前访问地址：${currentOrigin}\n\n请检查：\n1. Privy Dashboard > Settings > Redirect URIs\n2. 确保添加了：${currentOrigin} 和 ${currentOrigin}/\n3. 保存后等待几秒再重试\n\n详细步骤请参考 PRIVY_SETUP.md`;
         alert(errorMsg);
-        throw new Error('回调 URL 配置错误，请检查 Privy Dashboard 设置');
+        setIsLoggingIn(false);
+        return;
       }
       
       // 如果指定 Twitter 失败，尝试通用登录
       try {
         console.log('⚠️ Twitter login failed, trying general login...');
         await privyLogin();
+        console.log('✅ General login initiated');
       } catch (fallbackError: any) {
         console.error('❌ General login also failed:', fallbackError);
         const errorMsg = fallbackError?.message || '连接钱包失败，请重试';
         
         // 提供更友好的错误提示
-        if (errorMsg.includes('Something went wrong') || 
-            errorMsg.includes('weren\'t able to give access')) {
-          alert(`登录失败：\n\n可能的原因：\n1. Privy Dashboard 中未配置回调 URL\n2. Twitter OAuth 配置错误\n3. 环境变量未正确加载\n\n请检查 PRIVY_SETUP.md 获取详细配置步骤`);
-        }
+        const browserSpecificTip = browserInfo.browser === 'Chrome' || browserInfo.browser === 'Safari'
+          ? '\n\n⚠️ 浏览器兼容性提示：\nChrome/Safari 可能阻止了第三方 Cookie 或弹窗。\n请尝试：\n1. 检查浏览器 Cookie 设置，允许第三方 Cookie（至少对于 localhost）\n2. 检查是否阻止了弹窗\n3. 清除浏览器缓存后重试\n4. 或使用 Firefox 浏览器'
+          : '';
         
-        throw new Error(errorMsg);
+        alert(`登录失败：${errorMsg}${browserSpecificTip}\n\n请检查浏览器控制台获取更多信息。`);
+        setIsLoggingIn(false);
       }
+    } finally {
+      // 注意：如果登录成功，Privy 会打开新窗口，这个状态会在窗口关闭后重置
+      // 但如果登录失败，我们需要重置状态
+      // 由于 Privy 的登录是异步的，我们设置一个超时来重置状态
+      setTimeout(() => {
+        setIsLoggingIn(false);
+      }, 5000); // 5秒后重置，给 Privy 足够的时间打开登录窗口
     }
   };
 
   const handlePrivyLogout = async () => {
     try {
-      // 先调用应用的 logout，这会清除后端的 session 和 localStorage
-      await logout();
+      console.log('🚪 开始退出应用...');
       
-      // 然后调用 Privy 的 logout，这会清除 Privy 的 session（包括持久化的 session）
-      // 注意：Privy 的 logout 会清除所有 Privy 相关的 localStorage 数据
-      await privyLogout();
+      // 同时执行 Privy 和应用退出，确保两个登录都退出
+      // 使用 Promise.allSettled 确保即使某个退出失败，另一个也能执行
+      const results = await Promise.allSettled([
+        // 退出 Privy 登录（包括 Twitter 登录）
+        privyLogout(),
+        // 退出应用登录（清除后端 session 和 localStorage，并更新 isAuthenticated 状态）
+        logout()
+      ]);
       
-      console.log('✅ Privy logout successful, session cleared');
+      // 检查退出结果
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          const serviceName = index === 0 ? 'Privy' : 'App';
+          console.warn(`⚠️ ${serviceName} logout 失败:`, result.reason);
+        } else {
+          const serviceName = index === 0 ? 'Privy' : 'App';
+          console.log(`✅ ${serviceName} logout 成功`);
+        }
+      });
+      
+      // 清除所有相关的 localStorage 数据（确保完全清除）
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('current_user');
+      localStorage.removeItem('privy_user_id');
+      localStorage.removeItem('privy_twitter_username');
+      
+      console.log('✅ 退出成功：Privy 和应用登录都已退出');
+      console.log('📄 页面将返回到欢迎页面（Welcome to VenmoOTC）');
+      
+      // 注意：由于 logout() 已经设置了 setIsAuthenticated(false)，
+      // App.tsx 会自动检测到 !isAuthenticated 并显示 Profile 页面的欢迎界面
     } catch (error: any) {
-      console.error('Privy logout error:', error);
-      // 即使 Privy logout 失败，也要确保应用状态已清除
-      await logout();
+      console.error('❌ 退出过程中发生错误:', error);
+      // 即使出错，也尝试清除本地状态和应用状态
+      try {
+        // 确保应用状态被清除（这会设置 isAuthenticated = false）
+        await logout();
+        // 清除所有 localStorage
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('current_user');
+        localStorage.removeItem('privy_user_id');
+        localStorage.removeItem('privy_twitter_username');
+        console.log('✅ 已强制清除所有状态，页面将返回到欢迎页面');
+      } catch (cleanupError) {
+        console.error('❌ 清理状态时出错:', cleanupError);
+      }
     }
   };
 
@@ -714,14 +815,22 @@ const ProfileContent: React.FC<{
             {/* Privy 登录按钮（支持 Twitter 登录） */}
             {ready ? (
               <button 
-                onClick={handlePrivyLogin}
-                disabled={isPrivySyncing || !ready}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('🔘 [BUTTON] 登录按钮被点击');
+                  handlePrivyLogin().catch((err) => {
+                    console.error('❌ [BUTTON] 登录按钮错误处理:', err);
+                    setIsLoggingIn(false);
+                  });
+                }}
+                disabled={isPrivySyncing || !ready || isLoggingIn}
                 className="bg-blue-600 text-white w-full py-3 rounded-full font-bold flex items-center justify-center gap-3 hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isPrivySyncing ? (
+                {isPrivySyncing || isLoggingIn ? (
                   <>
                     <Loader className="w-5 h-5 animate-spin" />
-                    同步中...
+                    {isPrivySyncing ? '同步中...' : '正在登录...'}
                   </>
                 ) : (
                   <>
@@ -889,11 +998,19 @@ const ProfileContent: React.FC<{
 
                        <button
                          type="button"
-                         onClick={async (e) => {
+                         onMouseDown={async (e) => {
+                           // 在 mousedown 阶段就处理退出，确保在菜单容器的 mousedown 之前执行
                            e.preventDefault();
                            e.stopPropagation();
+                           // 立即关闭菜单
                            setShowSettingsMenu(false);
+                           // 执行退出逻辑
                            await handlePrivyLogout();
+                         }}
+                         onClick={(e) => {
+                           // 防止默认行为和事件冒泡（作为备用处理）
+                           e.preventDefault();
+                           e.stopPropagation();
                          }}
                          className="w-full px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-100 transition-colors"
                        >
