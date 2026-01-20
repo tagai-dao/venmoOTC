@@ -170,8 +170,12 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
     }
     setIsProcessing(true);
     try {
-      await Services.bids.createBid(transaction.id);
+      const response = await Services.bids.createBid(transaction.id);
+      console.log('✅ 抢单成功:', response);
+      
+      // 刷新 feed 以获取最新的交易数据（包括 bids 和更新后的 otcState）
       await refreshFeed();
+      
       alert('抢单成功！请等待发起者选择交易方。');
     } catch (error: any) {
       console.error('抢单失败:', error);

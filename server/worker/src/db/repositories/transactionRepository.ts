@@ -103,6 +103,7 @@ export class TransactionRepository {
       likes: row.likes || 0,
       comments: row.comments || 0,
       replies: replies.length > 0 ? replies : undefined,
+      bids: bids.length > 0 ? bids : undefined,
     };
   }
 
