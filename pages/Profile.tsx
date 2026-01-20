@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { usePrivy, useWallets, useOAuthTokens, useLoginWithOAuth } from '@privy-io/react-auth';
 import { useApp } from '../context/AppContext';
 import { Settings, LogOut, Wallet, User as UserIcon, QrCode, Twitter, Copy, ArrowUpRight, ArrowDownLeft, Globe, Loader, PenTool, Check, ExternalLink, Send } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 import { Currency, formatCurrency, Privacy, TransactionType, OTCState } from '../utils';
 import QRCode from 'react-qr-code';
 import FeedItem from '../components/FeedItem';
@@ -279,6 +281,7 @@ const ProfileContent: React.FC<{
   displayedAccessToken?: string | null;
   setDisplayedAccessToken?: (token: string | null) => void;
 }> = ({ currentUser, walletBalance, isAuthenticated, login, logout, feed, ready, authenticated, privyUser, privyLogin, privyLogout, wallets = [], onAuthorizeTwitter, twitterAccessTokenStatus = 'unknown', setTwitterAccessTokenStatus, pendingTwitterAccessToken = null, pendingTwitterRefreshToken = null, displayedAccessToken = null, setDisplayedAccessToken }) => {
+  const { t } = useTranslation('translation');
   const { markAllNotificationsAsRead, refreshNotifications, unreadCount, setCurrentUser } = useApp();
   const [showMyQR, setShowMyQR] = useState(false);
   const [showSignatureTest, setShowSignatureTest] = useState(false);
@@ -542,7 +545,7 @@ const ProfileContent: React.FC<{
 
     if (!ready) {
       console.warn('⚠️ Privy is not ready yet');
-      alert('钱包服务正在初始化，请稍候几秒钟后重试');
+      alert(t('wallet.walletServiceInitializing'));
       return;
     }
     
@@ -710,7 +713,7 @@ const ProfileContent: React.FC<{
   // 处理保存法币账户信息
   const handleSaveFiatDetails = async () => {
     if (!fiatFormData.accountName || !fiatFormData.accountNumber || !fiatFormData.bankName) {
-      alert('请填写所有必填字段（姓名、银行账号、银行名称）');
+      alert(t('fiat.fillAllRequired'));
       return;
     }
 
@@ -730,7 +733,7 @@ const ProfileContent: React.FC<{
       localStorage.setItem('current_user', JSON.stringify(updatedUser));
 
       setShowFiatEditModal(false);
-      alert('✅ 法币账户信息已保存');
+      alert(t('fiat.saveSuccess'));
     } catch (error: any) {
       console.error('Failed to save fiat details:', error);
       alert(`保存失败: ${error?.message || '未知错误'}`);
@@ -752,53 +755,53 @@ const ProfileContent: React.FC<{
 
   // 国别列表
   const countries = [
-    { code: '', name: '请选择国别' },
-    { code: 'CN', name: '中国' },
-    { code: 'US', name: '美国' },
-    { code: 'GB', name: '英国' },
-    { code: 'NG', name: '尼日利亚' },
-    { code: 'VE', name: '委内瑞拉' },
-    { code: 'IN', name: '印度' },
-    { code: 'BR', name: '巴西' },
-    { code: 'JP', name: '日本' },
-    { code: 'KR', name: '韩国' },
-    { code: 'SG', name: '新加坡' },
-    { code: 'HK', name: '香港' },
-    { code: 'TW', name: '台湾' },
-    { code: 'AU', name: '澳大利亚' },
-    { code: 'CA', name: '加拿大' },
-    { code: 'DE', name: '德国' },
-    { code: 'FR', name: '法国' },
-    { code: 'IT', name: '意大利' },
-    { code: 'ES', name: '西班牙' },
-    { code: 'NL', name: '荷兰' },
-    { code: 'BE', name: '比利时' },
-    { code: 'CH', name: '瑞士' },
-    { code: 'AT', name: '奥地利' },
-    { code: 'SE', name: '瑞典' },
-    { code: 'NO', name: '挪威' },
-    { code: 'DK', name: '丹麦' },
-    { code: 'FI', name: '芬兰' },
-    { code: 'PL', name: '波兰' },
-    { code: 'RU', name: '俄罗斯' },
-    { code: 'ZA', name: '南非' },
-    { code: 'EG', name: '埃及' },
-    { code: 'KE', name: '肯尼亚' },
-    { code: 'MX', name: '墨西哥' },
-    { code: 'AR', name: '阿根廷' },
-    { code: 'CL', name: '智利' },
-    { code: 'CO', name: '哥伦比亚' },
-    { code: 'PE', name: '秘鲁' },
-    { code: 'PH', name: '菲律宾' },
-    { code: 'TH', name: '泰国' },
-    { code: 'VN', name: '越南' },
-    { code: 'ID', name: '印度尼西亚' },
-    { code: 'MY', name: '马来西亚' },
-    { code: 'AE', name: '阿联酋' },
-    { code: 'SA', name: '沙特阿拉伯' },
-    { code: 'IL', name: '以色列' },
-    { code: 'TR', name: '土耳其' },
-    { code: 'OTHER', name: '其他' },
+    { code: '', name: t('countries.selectCountry') },
+    { code: 'CN', name: t('countries.china') },
+    { code: 'US', name: t('countries.unitedStates') },
+    { code: 'GB', name: t('countries.unitedKingdom') },
+    { code: 'NG', name: t('countries.nigeria') },
+    { code: 'VE', name: t('countries.venezuela') },
+    { code: 'IN', name: t('countries.india') },
+    { code: 'BR', name: t('countries.brazil') },
+    { code: 'JP', name: t('countries.japan') },
+    { code: 'KR', name: t('countries.southKorea') },
+    { code: 'SG', name: t('countries.singapore') },
+    { code: 'HK', name: t('countries.hongKong') },
+    { code: 'TW', name: t('countries.taiwan') },
+    { code: 'AU', name: t('countries.australia') },
+    { code: 'CA', name: t('countries.canada') },
+    { code: 'DE', name: t('countries.germany') },
+    { code: 'FR', name: t('countries.france') },
+    { code: 'IT', name: t('countries.italy') },
+    { code: 'ES', name: t('countries.spain') },
+    { code: 'NL', name: t('countries.netherlands') },
+    { code: 'BE', name: t('countries.belgium') },
+    { code: 'CH', name: t('countries.switzerland') },
+    { code: 'AT', name: t('countries.austria') },
+    { code: 'SE', name: t('countries.sweden') },
+    { code: 'NO', name: t('countries.norway') },
+    { code: 'DK', name: t('countries.denmark') },
+    { code: 'FI', name: t('countries.finland') },
+    { code: 'PL', name: t('countries.poland') },
+    { code: 'RU', name: t('countries.russia') },
+    { code: 'ZA', name: t('countries.southAfrica') },
+    { code: 'EG', name: t('countries.egypt') },
+    { code: 'KE', name: t('countries.kenya') },
+    { code: 'MX', name: t('countries.mexico') },
+    { code: 'AR', name: t('countries.argentina') },
+    { code: 'CL', name: t('countries.chile') },
+    { code: 'CO', name: t('countries.colombia') },
+    { code: 'PE', name: t('countries.peru') },
+    { code: 'PH', name: t('countries.philippines') },
+    { code: 'TH', name: t('countries.thailand') },
+    { code: 'VN', name: t('countries.vietnam') },
+    { code: 'ID', name: t('countries.indonesia') },
+    { code: 'MY', name: t('countries.malaysia') },
+    { code: 'AE', name: t('countries.uae') },
+    { code: 'SA', name: t('countries.saudiArabia') },
+    { code: 'IL', name: t('countries.israel') },
+    { code: 'TR', name: t('countries.turkey') },
+    { code: 'OTHER', name: t('countries.other') },
   ];
 
 
@@ -808,8 +811,8 @@ const ProfileContent: React.FC<{
          <div className="w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center mb-6 shadow-xl shadow-blue-500/20">
              <span className="text-white font-bold text-3xl italic">T</span>
          </div>
-         <h1 className="text-2xl font-bold mb-2">Welcome to TagPay</h1>
-         <p className="text-gray-500 text-center mb-8">The social way to pay and trade stablecoins.</p>
+         <h1 className="text-2xl font-bold mb-2">{t('welcome.title')}</h1>
+         <p className="text-gray-500 text-center mb-8">{t('welcome.subtitle')}</p>
          
          <div className="w-full max-w-xs space-y-3">
             {/* Privy 登录按钮（支持 Twitter 登录） */}
@@ -830,24 +833,24 @@ const ProfileContent: React.FC<{
                 {isPrivySyncing || isLoggingIn ? (
                   <>
                     <Loader className="w-5 h-5 animate-spin" />
-                    {isPrivySyncing ? '同步中...' : '正在登录...'}
+                    {isPrivySyncing ? t('common.processing') : t('auth.pleaseLogin')}
                   </>
                 ) : (
                   <>
                     <Wallet className="w-5 h-5" />
-                    使用 Privy 登录（支持 Twitter）
+                    {t('welcome.loginWithPrivy')}
                   </>
                 )}
               </button>
             ) : (
               <div className="bg-gray-100 text-gray-500 w-full py-3 rounded-full font-bold flex items-center justify-center gap-3">
                 <Loader className="w-5 h-5 animate-spin" />
-                钱包服务初始化中...
+                {t('welcome.walletServiceInitializing')}
               </div>
             )}
          </div>
          <p className="mt-4 text-xs text-gray-400 text-center max-w-[280px]">
-            使用 Privy 钱包登录，支持 Twitter 账号登录。首次登录将自动创建钱包。
+            {t('welcome.loginDescription')}
          </p>
       </div>
     );
@@ -907,7 +910,7 @@ const ProfileContent: React.FC<{
                   </div>
               </div>
               <div className="flex gap-2 relative">
-                 <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title="显示二维码">
+                 <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title={t('common.scan')}>
                      <QrCode className="w-6 h-6" />
                  </button>
                  {/* 测试钱包签名按钮 - 已隐藏 */}
@@ -928,7 +931,7 @@ const ProfileContent: React.FC<{
                        setShowSettingsMenu(!showSettingsMenu);
                      }}
                      className="p-2 text-gray-600 hover:bg-gray-100 rounded-full"
-                     title="设置"
+                     title={t('common.settings')}
                      type="button"
                      data-settings-button="true"
                    >
@@ -996,6 +999,21 @@ const ProfileContent: React.FC<{
                          <ExternalLink className="w-4 h-4 text-gray-400" />
                        </button>
 
+                       {/* 语言切换 */}
+                       <div
+                         onClick={(e) => {
+                           // 阻止事件冒泡，但不关闭菜单
+                           e.stopPropagation();
+                         }}
+                       >
+                         <LanguageSwitcher 
+                           variant="menu-item"
+                           onSelect={() => {
+                             // 语言切换后不关闭菜单，方便用户看到效果
+                           }}
+                         />
+                       </div>
+
                        <button
                          type="button"
                          onMouseDown={async (e) => {
@@ -1010,7 +1028,7 @@ const ProfileContent: React.FC<{
                          className="w-full px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-100 transition-colors"
                        >
                          <LogOut className="w-4 h-4" />
-                         退出应用
+                         {t('common.logout')}
                        </button>
                        </div>
                      </>
@@ -1025,7 +1043,7 @@ const ProfileContent: React.FC<{
                  {ready && authenticated ? (
                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/20 rounded-full border border-green-400/30">
                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                         <span className="text-[10px] font-bold text-green-300">已连接</span>
+                         <span className="text-[10px] font-bold text-green-300">{t('wallet.connected')}</span>
                      </div>
                  ) : (
                      <button
@@ -1054,18 +1072,18 @@ const ProfileContent: React.FC<{
                                  ? 'bg-yellow-500/20 border-yellow-400/30 hover:bg-yellow-500/30 active:bg-yellow-500/40 cursor-pointer' 
                                  : 'bg-gray-500/20 border-gray-400/30 opacity-50 cursor-not-allowed'
                          }`}
-                         title={ready ? "点击连接钱包（支持 Twitter 登录）" : "钱包服务正在初始化..."}
+                         title={ready ? t('wallet.clickToConnect') : t('wallet.walletServiceInitializing')}
                          type="button"
                          disabled={!ready}
                      >
                          <div className={`w-2 h-2 rounded-full ${ready ? 'bg-yellow-400' : 'bg-gray-400'}`}></div>
-                         <span className={`text-[10px] font-bold ${ready ? 'text-yellow-300' : 'text-gray-300'}`}>未连接</span>
+                         <span className={`text-[10px] font-bold ${ready ? 'text-yellow-300' : 'text-gray-300'}`}>{t('wallet.notConnected')}</span>
                      </button>
                  )}
              </div>
              <div className="flex justify-between items-center mb-2">
                  <span className="text-slate-400 text-sm font-medium flex items-center gap-2">
-                     <Wallet className="w-4 h-4" /> Wallet Balance
+                     <Wallet className="w-4 h-4" /> {t('wallet.walletBalance')}
                      {isLoadingPrices && <Loader className="w-3 h-3 animate-spin" />}
                  </span>
              </div>
@@ -1081,7 +1099,7 @@ const ProfileContent: React.FC<{
                  {/* 显示钱包地址 */}
                  <div className="mt-3 pt-3 border-t border-slate-700/50">
                     <div className="flex items-center gap-2">
-                       <span className="text-slate-400 text-xs font-medium">Wallet Address:</span>
+                       <span className="text-slate-400 text-xs font-medium">{t('profile.walletAddress')}:</span>
                        <span className="text-xs font-mono text-slate-300 break-all">
                           {privyUser?.wallet?.address || currentUser.walletAddress}
                        </span>
@@ -1089,10 +1107,10 @@ const ProfileContent: React.FC<{
                           onClick={() => {
                             const address = privyUser?.wallet?.address || currentUser.walletAddress;
                             navigator.clipboard.writeText(address);
-                            alert('钱包地址已复制到剪贴板');
+                            alert(t('wallet.addressCopied'));
                           }}
                           className="ml-auto p-1 hover:bg-slate-700/50 rounded transition"
-                          title="复制钱包地址"
+                          title={t('wallet.copyAddress')}
                        >
                           <Copy className="w-3 h-3 text-slate-400" />
                        </button>
@@ -1106,19 +1124,19 @@ const ProfileContent: React.FC<{
        <div className="p-4 pb-0">
            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                <div className="flex justify-between items-center">
-                   <h4 className="font-bold text-blue-900">Fiat Withdrawal Accounts</h4>
+                   <h4 className="font-bold text-blue-900">{t('fiat.fiatWithdrawalAccounts')}</h4>
                    <button 
                      onClick={handleOpenFiatEdit}
                      className="text-xs font-bold text-blue-600 bg-white px-3 py-1 rounded-full shadow-sm hover:bg-blue-50 transition-colors"
                    >
-                     Edit
+                     {t('fiat.edit')}
                    </button>
                </div>
                <div className="mt-3 text-sm text-blue-800">
                    {currentUser.fiatDetails ? (
                      <p>{currentUser.fiatDetails.bankName} - •••• {currentUser.fiatDetails.accountNumber.slice(-4)}</p>
                    ) : (
-                     <p className="text-gray-500">未设置法币账户信息</p>
+                     <p className="text-gray-500">{t('fiat.notSet')}</p>
                    )}
                </div>
            </div>
@@ -1138,13 +1156,13 @@ const ProfileContent: React.FC<{
                  onClick={() => setActiveTab('activity')}
                  className={`pb-3 text-sm font-bold transition-colors ${activeTab === 'activity' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 hover:text-gray-600'}`}
                >
-                 Your Activity
+                 {t('tabs.yourActivity')}
                </button>
                <button
                  onClick={() => setActiveTab('requests')}
                  className={`pb-3 text-sm font-bold transition-colors relative ${activeTab === 'requests' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 hover:text-gray-600'}`}
                >
-                 Requests
+                 {t('tabs.requests')}
                  {unreadCount > 0 && (
                      <span className="absolute -top-1 -right-5 bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1 rounded-full flex items-center justify-center border-2 border-white">
                          {unreadCount}
@@ -1255,7 +1273,7 @@ const ProfileContent: React.FC<{
                     </div>
                ) : (
                    <div className="text-center text-gray-400 py-10 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-100">
-                       <p className="text-sm font-medium">No recent transactions</p>
+                       <p className="text-sm font-medium">{t('tabs.noRecentTransactions')}</p>
                    </div>
                )
            )}
@@ -1274,7 +1292,7 @@ const ProfileContent: React.FC<{
                                            // 同时标记通知为已读（这样小红标会清零）
                                            await markAllNotificationsAsRead();
                                            await refreshNotifications();
-                                           alert('✅ 已标记全部 Request 和通知为已读');
+                                           alert(`✅ ${t('tabs.markAllRead')}`);
                                        } catch (error: any) {
                                            console.error('Failed to mark all as read:', error);
                                            alert(`标记失败: ${error?.message || '未知错误'}`);
@@ -1291,7 +1309,7 @@ const ProfileContent: React.FC<{
                                            处理中...
                                        </>
                                    ) : (
-                                       '全部已读'
+                                       t('tabs.markAllRead')
                                    )}
                                </button>
                            </div>
@@ -1311,7 +1329,7 @@ const ProfileContent: React.FC<{
                                                ? 'bg-green-50 hover:bg-green-100' 
                                                : 'bg-white/80 hover:bg-white shadow-sm'
                                        }`}
-                                       title={isRequestRead(t.id) ? '已读' : '点击标记为已读'}
+                                       title={isRequestRead(t.id) ? t('tabs.read') : t('tabs.clickToMarkRead')}
                                    >
                                        {isRequestRead(t.id) ? (
                                            <Check className="w-4 h-4 text-green-600" />
@@ -1329,8 +1347,8 @@ const ProfileContent: React.FC<{
                    ) : (
                        <div className="p-8 text-center text-gray-400">
                             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🎉</div>
-                            <p className="font-bold text-slate-700">All caught up!</p>
-                            <p className="text-sm mt-1">No active trades.</p>
+                            <p className="font-bold text-slate-700">{t('tabs.allCaughtUp')}</p>
+                            <p className="text-sm mt-1">{t('tabs.noActiveTrades')}</p>
                        </div>
                    )}
                </div>
@@ -1356,7 +1374,7 @@ const ProfileContent: React.FC<{
                        <Copy className="w-3 h-3" />
                    </button>
                    
-                   <p className="mt-6 text-xs text-gray-400 text-center max-w-[200px]">Scan to pay USDT, USDC or other supported assets.</p>
+                   <p className="mt-6 text-xs text-gray-400 text-center max-w-[200px]">{t('modal.scanToPay')}</p>
                </div>
            </div>
        )}
@@ -1377,7 +1395,7 @@ const ProfileContent: React.FC<{
              onClick={e => e.stopPropagation()}
            >
              <div className="flex justify-between items-center mb-6">
-               <h2 className="text-xl font-bold text-slate-900">编辑法币账户信息</h2>
+               <h2 className="text-xl font-bold text-slate-900">{t('fiat.editFiatAccount')}</h2>
                <button
                  onClick={() => setShowFiatEditModal(false)}
                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -1391,14 +1409,14 @@ const ProfileContent: React.FC<{
                {/* 姓名 */}
                <div>
                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                   姓名 <span className="text-red-500">*</span>
+                   {t('fiat.accountNameRequired')}
                  </label>
                  <input
                    type="text"
                    value={fiatFormData.accountName}
                    onChange={(e) => setFiatFormData({ ...fiatFormData, accountName: e.target.value })}
                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                   placeholder="请输入账户持有人姓名"
+                   placeholder={t('fiat.accountNamePlaceholder')}
                    disabled={isSavingFiatDetails}
                  />
                </div>
@@ -1406,14 +1424,14 @@ const ProfileContent: React.FC<{
                {/* 银行账号 */}
                <div>
                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                   银行账号 <span className="text-red-500">*</span>
+                   {t('fiat.accountNumberRequired')}
                  </label>
                  <input
                    type="text"
                    value={fiatFormData.accountNumber}
                    onChange={(e) => setFiatFormData({ ...fiatFormData, accountNumber: e.target.value })}
                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                   placeholder="请输入银行账号"
+                   placeholder={t('fiat.accountNumberPlaceholder')}
                    disabled={isSavingFiatDetails}
                  />
                </div>
@@ -1421,14 +1439,14 @@ const ProfileContent: React.FC<{
                {/* 银行名称 */}
                <div>
                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                   银行名称 <span className="text-red-500">*</span>
+                   {t('fiat.bankNameRequired')}
                  </label>
                  <input
                    type="text"
                    value={fiatFormData.bankName}
                    onChange={(e) => setFiatFormData({ ...fiatFormData, bankName: e.target.value })}
                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                   placeholder="请输入银行名称"
+                   placeholder={t('fiat.bankNamePlaceholder')}
                    disabled={isSavingFiatDetails}
                  />
                </div>
@@ -1436,7 +1454,7 @@ const ProfileContent: React.FC<{
                {/* 国别 */}
                <div>
                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                   国别
+                   {t('fiat.country')}
                  </label>
                  <select
                    value={fiatFormData.country}
@@ -1460,7 +1478,7 @@ const ProfileContent: React.FC<{
                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl font-bold text-slate-700 hover:bg-gray-50 transition-colors"
                  disabled={isSavingFiatDetails}
                >
-                 取消
+                 {t('common.cancel')}
                </button>
                <button
                  onClick={handleSaveFiatDetails}
@@ -1470,10 +1488,10 @@ const ProfileContent: React.FC<{
                  {isSavingFiatDetails ? (
                    <>
                      <Loader className="w-4 h-4 animate-spin" />
-                     保存中...
+                     {t('fiat.saving')}
                    </>
                  ) : (
-                   '保存'
+                   t('common.save')
                  )}
                </button>
              </div>

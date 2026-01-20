@@ -3,6 +3,7 @@ import { Transaction, TransactionReply, timeAgo, Privacy, formatCurrency, Transa
 import { useApp } from '../context/AppContext';
 import { X, Send, Upload, Twitter, MessageCircle, Heart, ArrowLeft } from 'lucide-react';
 import { Services } from '../services';
+import { useTranslation } from 'react-i18next';
 
 interface ReplyDetailModalProps {
   transaction: Transaction;
@@ -12,6 +13,7 @@ interface ReplyDetailModalProps {
 
 const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initialTransaction, onClose, onUserClick }) => {
   const { currentUser, refreshFeed, feed } = useApp();
+  const { t } = useTranslation();
   const [transaction, setTransaction] = useState(initialTransaction);
   const [commentText, setCommentText] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -122,11 +124,11 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
 
   const handleSubmitComment = async () => {
     if (!currentUser) {
-      alert('请先登录才能评论');
+      alert(t('reply.pleaseLoginToComment'));
       return;
     }
     if (!commentText.trim() && !file) {
-      alert('请添加评论内容或上传图片');
+      alert(t('reply.addCommentOrImage'));
       return;
     }
 
@@ -143,7 +145,7 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
       await refreshFeed();
     } catch (error: any) {
       console.error('Failed to add comment:', error);
-      alert(error?.message || '评论失败，请重试');
+      alert(error?.message || t('reply.commentFailed'));
     } finally {
       setIsProcessing(false);
     }
@@ -160,7 +162,7 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
           >
             <ArrowLeft className="w-5 h-5 text-slate-900" />
           </button>
-          <h2 className="text-lg font-bold text-slate-900">回复</h2>
+          <h2 className="text-lg font-bold text-slate-900">{t('reply.replies')}</h2>
         </div>
 
       {/* Original Post - 类似 X 的原始推文展示 */}
@@ -211,11 +213,11 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
             <div className="flex items-center gap-6 text-sm text-gray-500 pt-2 border-t border-gray-100">
               <div className="flex items-center gap-1">
                 <span className="font-semibold text-slate-900">{transaction.likes}</span>
-                <span>点赞</span>
+                <span>{t('reply.likes')}</span>
               </div>
               <div className="flex items-center gap-1">
                 <span className="font-semibold text-slate-900">{transaction.comments}</span>
-                <span>回复</span>
+                <span>{t('reply.repliesCount')}</span>
               </div>
             </div>
           </div>
@@ -227,8 +229,8 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
         {allReplies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center px-4">
             <MessageCircle className="w-12 h-12 text-gray-300 mb-3" />
-            <p className="text-gray-500 font-medium mb-1">还没有回复</p>
-            <p className="text-sm text-gray-400">成为第一个回复的人吧！</p>
+            <p className="text-gray-500 font-medium mb-1">{t('reply.noRepliesYet')}</p>
+            <p className="text-sm text-gray-400">{t('reply.beFirstToReply')}</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -299,7 +301,7 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
             />
             <div className="flex-1 flex flex-col gap-2">
               <textarea
-                placeholder="添加回复..."
+                placeholder={t('reply.addReply')}
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 className="w-full bg-transparent border-none outline-none text-sm resize-none min-h-[60px] placeholder:text-gray-500"
@@ -308,7 +310,7 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
               <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                 <label className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600 cursor-pointer">
                   <Upload className="w-4 h-4" />
-                  <span className="text-xs">{file ? file.name : '上传图片'}</span>
+                  <span className="text-xs">{file ? file.name : t('reply.uploadImage')}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -326,7 +328,7 @@ const ReplyDetailModal: React.FC<ReplyDetailModalProps> = ({ transaction: initia
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      回复
+                      {t('reply.reply')}
                     </>
                   )}
                 </button>

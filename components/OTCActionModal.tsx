@@ -6,6 +6,7 @@ import { Services } from '../services';
 import { sendUSDTWithPrivy } from '../services/privyBlockchainService';
 import { ethers } from 'ethers';
 import { X, Search, Globe, Users, Lock, ArrowDown, ChevronLeft, Twitter, Loader } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   onClose: () => void;
@@ -106,6 +107,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
   wallets = []
 }) => {
   const { addTransaction, currentUser, friends, walletBalance } = useApp();
+  const { t } = useTranslation();
   const [step, setStep] = useState(initialUser || initialAddress ? 2 : 1);
   const [selectedUser, setSelectedUser] = useState<User | null>(initialUser);
   const [targetAddress, setTargetAddress] = useState<string | null>(initialAddress);
@@ -278,13 +280,13 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
 
     // 验证：支付时不能给自己转账
     if (transactionType === TransactionType.PAYMENT && selectedUser && selectedUser.id === currentUser.id) {
-      alert('不能给自己转账，请选择其他收款人');
+      alert(t('modal.cannotPayYourself'));
       return;
     }
 
     // 验证：支付时不能向自己的地址转账
     if (transactionType === TransactionType.PAYMENT && targetAddress && targetAddress.toLowerCase() === currentUser.walletAddress.toLowerCase()) {
-      alert('不能向自己的地址转账');
+      alert(t('modal.cannotPayOwnAddress'));
       return;
     }
 
@@ -333,8 +335,8 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
       // 支付到地址时，toUser 为 null，地址信息记录在 note 中
       finalToUser = null;
       finalNoteWithAddress = finalNote 
-        ? `${finalNote}\n\n收款地址: ${targetAddress}`
-        : `支付到地址: ${targetAddress}`;
+        ? `${finalNote}\n\n${t('modal.recipientAddress')}: ${targetAddress}`
+        : `${t('modal.pay')} ${t('modal.sendTo')} ${targetAddress}`;
     }
 
     // 存储 Privy 转账的交易哈希（如果成功）
@@ -398,7 +400,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
         
         // 检查 Privy 是否就绪
         if (!currentState.ready) {
-          throw new Error('Privy 钱包服务正在初始化，请稍候几秒钟后重试。');
+          throw new Error(t('wallet.walletServiceInitializing'));
         }
         
         if (!currentState.privyLogin) {
@@ -674,7 +676,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
         try {
           // 检查 Privy 是否已配置
           if (!hasPrivy) {
-            alert('钱包功能未启用。\n\n要启用钱包功能，请：\n1. 在项目根目录创建 .env 文件\n2. 添加：VITE_PRIVY_APP_ID=你的_privy_app_id\n3. 重启开发服务器\n\n详情请参考 PRIVY_SETUP.md 文件。');
+            alert(t('auth.serverConnectionError'));
             setIsSubmitting(false);
             return;
           }
@@ -684,7 +686,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
           const provider = await getPrivyProviderWithAutoLogin(60000);
           
           if (!provider) {
-            throw new Error('无法获取钱包连接。请确保已连接 Privy 钱包。');
+            throw new Error(t('auth.pleaseConnectWallet'));
           }
 
           // 获取当前 Privy 钱包地址（用于日志记录）
@@ -727,7 +729,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
           }
           
           // 显示成功消息
-          alert(`✅ USDT 发送成功！\n交易哈希: ${privyTxHash}\n\n您可以在 BscScan 上查看交易详情。`);
+          alert(`✅ ${t('transaction.transactionSuccess')}\n${t('transaction.transactionSuccess')}: ${privyTxHash}`);
         } catch (error: any) {
           console.error('❌ Privy 支付失败:', error);
           console.error('错误详情:', {
@@ -738,7 +740,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
           });
           
           // 处理各种错误情况
-          const errorMessage = error?.message || '支付失败，请重试';
+          const errorMessage = error?.message || t('transaction.transactionFailed');
           
           // 用户取消交易
           if (error?.code === 'ACTION_REJECTED' || errorMessage.includes('用户取消') || errorMessage.includes('rejected')) {
@@ -749,13 +751,13 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
           
           // 余额不足
           if (error?.code === 'INSUFFICIENT_FUNDS' || errorMessage.includes('余额不足')) {
-            alert(`支付失败: 余额不足\n\n当前余额可能不足以支付 ${numAmount} USDT。`);
+            alert(`${t('transaction.transactionFailed')}: ${t('transaction.transactionFailed')}\n\n${t('transaction.transactionFailed')} ${numAmount} USDT。`);
             setIsSubmitting(false);
             return;
           }
           
           // 其他错误
-          alert(`支付失败: ${errorMessage}\n\n交易记录不会被创建。`);
+          alert(`${t('transaction.transactionFailed')}: ${errorMessage}`);
           setIsSubmitting(false);
           return; // 重要：支付失败时，不创建交易记录
         }
@@ -786,7 +788,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
       onClose();
     } catch (error: any) {
       console.error('交易创建失败:', error);
-      alert(error?.message || '交易创建失败，请重试');
+      alert(error?.message || t('transaction.transactionFailed'));
       setIsSubmitting(false);
     }
   };
@@ -796,7 +798,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
        <div className="px-4 py-3 border-b flex items-center gap-3">
           <Search className="w-5 h-5 text-gray-400" />
           <input 
-            placeholder="Name, @username, email..." 
+            placeholder={t('modal.nameUsernameEmail')} 
             className="flex-1 bg-transparent outline-none text-lg"
             autoFocus
           />
@@ -813,8 +815,8 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                         <Twitter className="w-7 h-7" />
                     </div>
                     <div>
-                        <p className="font-bold text-slate-900 text-lg">Public on X</p>
-                        <p className="text-sm text-slate-500">Post request to your X timeline</p>
+                        <p className="font-bold text-slate-900 text-lg">{t('modal.publicOnX')}</p>
+                        <p className="text-sm text-slate-500">{t('modal.postToTimeline')}</p>
                     </div>
                  </button>
                  <button 
@@ -825,8 +827,8 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                         <Globe className="w-7 h-7" />
                     </div>
                     <div>
-                        <p className="font-bold text-slate-900 text-lg">Public within the app</p>
-                        <p className="text-sm text-slate-500">Post to the community feed</p>
+                        <p className="font-bold text-slate-900 text-lg">{t('modal.publicWithinApp')}</p>
+                        <p className="text-sm text-slate-500">{t('modal.postToCommunity')}</p>
                     </div>
                  </button>
                  <button 
@@ -837,8 +839,8 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                         <Users className="w-7 h-7" />
                     </div>
                     <div>
-                        <p className="font-bold text-slate-900 text-lg">Friends ONLY</p>
-                        <p className="text-sm text-slate-500">Only visible to your friends</p>
+                        <p className="font-bold text-slate-900 text-lg">{t('modal.friendsOnly')}</p>
+                        <p className="text-sm text-slate-500">{t('modal.onlyVisibleToFriends')}</p>
                     </div>
                  </button>
              </div>
@@ -854,8 +856,8 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                             <span className="text-xl">📝</span>
                         </div>
                         <div className="text-left">
-                            <p className="font-bold text-slate-900">输入钱包地址</p>
-                            <p className="text-sm text-slate-500">直接输入以太坊地址进行支付</p>
+                            <p className="font-bold text-slate-900">{t('modal.enterWalletAddress')}</p>
+                            <p className="text-sm text-slate-500">{t('modal.enterEthereumAddress')}</p>
                         </div>
                     </button>
                 ) : (
@@ -870,7 +872,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                             >
                                 <X className="w-4 h-4 text-gray-600" />
                             </button>
-                            <p className="text-sm font-bold text-slate-900">输入以太坊地址</p>
+                            <p className="text-sm font-bold text-slate-900">{t('modal.enterEthereumAddressLabel')}</p>
                         </div>
                         <input
                             type="text"
@@ -888,7 +890,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 }}
                                 className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
                             >
-                                取消
+                                {t('common.cancel')}
                             </button>
                             <button
                                 onClick={() => {
@@ -901,18 +903,18 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                         setAddressInput('');
                                         setStep(2);
                                     } else {
-                                        alert('请输入有效的以太坊地址（0x开头，42个字符）');
+                                        alert(t('modal.invalidEthereumAddress'));
                                     }
                                 }}
                                 disabled={!addressInput.trim()}
                                 className="flex-1 px-4 py-2 text-sm font-bold text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                确认
+                                {t('common.confirm')}
                             </button>
                         </div>
                     </div>
                 )}
-                <p className="px-4 py-2 text-xs font-bold text-gray-500 uppercase mt-2">联系人</p>
+                <p className="px-4 py-2 text-xs font-bold text-gray-500 uppercase mt-2">{t('modal.contacts')}</p>
                 {friends.length > 0 ? (
                     friends.map(f => (
                         <button 
@@ -933,7 +935,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                     ))
                 ) : (
                     <div className="px-4 py-8 text-center text-gray-400">
-                        <p className="text-sm">No users found</p>
+                        <p className="text-sm">{t('modal.noUsersFound')}</p>
                     </div>
                 )}
             </>
@@ -1006,7 +1008,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
               {/* Top Box (Source) */}
               <div className="bg-gray-100 rounded-2xl p-4 pb-8 transition-colors hover:bg-gray-200/70">
                   <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs font-bold text-gray-500">You Pay (Offer)</span>
+                      <span className="text-xs font-bold text-gray-500">{t('modal.youPay')}</span>
                   </div>
                   <div className="flex justify-between items-center">
                       <input 
@@ -1034,7 +1036,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                       </div>
                   </div>
                   <div className="mt-1 text-xs text-gray-400 pl-1">
-                      Balance: {isUSDTSource 
+                      {t('modal.balance')}: {isUSDTSource 
                         ? `${isLoadingBalance ? '...' : (usdtBalance !== null ? usdtBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')} ₮`
                         : `${isLoadingBalance ? '...' : (ngnBalance !== null ? ngnBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')} ${otcTargetCurrency}`}
                   </div>
@@ -1053,7 +1055,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
               {/* Bottom Box (Target) */}
               <div className="bg-gray-100 rounded-2xl p-4 pt-8 mt-1 transition-colors hover:bg-gray-200/70">
                   <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs font-bold text-gray-500">You Receive (Request)</span>
+                      <span className="text-xs font-bold text-gray-500">{t('modal.youReceive')}</span>
                   </div>
                   <div className="flex justify-between items-center">
                       <input 
@@ -1080,7 +1082,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                       </div>
                   </div>
                   <div className="mt-1 text-xs text-gray-400 pl-1">
-                      Rate: 1 USDT ≈ {EXCHANGE_RATES[otcTargetCurrency]} {otcTargetCurrency}
+                      {t('modal.rate')}: 1 USDT ≈ {EXCHANGE_RATES[otcTargetCurrency]} {otcTargetCurrency}
                   </div>
               </div>
           </div>
@@ -1088,7 +1090,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
 
       <div className="space-y-6 flex-1">
         <textarea 
-            placeholder={transactionType === TransactionType.REQUEST ? "Describe payment method preference..." : "What's this for?"}
+            placeholder={transactionType === TransactionType.REQUEST ? t('modal.describePaymentMethod') : t('modal.whatsThisFor')}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             className="w-full bg-gray-100 rounded-2xl p-4 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100 transition text-sm"
@@ -1099,28 +1101,28 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
           <div className="bg-sky-50 border-2 border-sky-200 rounded-2xl p-4 space-y-2">
             <div className="flex items-center gap-2 mb-2">
               <Twitter className="w-4 h-4 text-sky-600" />
-              <p className="text-xs font-bold text-sky-900 uppercase">推文内容（将发布到 X）</p>
+              <p className="text-xs font-bold text-sky-900 uppercase">{t('modal.tweetContent')}</p>
             </div>
             <textarea 
-                placeholder="编写推文内容...（例如：Requesting 100 USDT for 165000 NGN on VenmoOTC! #DeFi #OTC）"
+                placeholder={t('modal.tweetContentPlaceholder')}
                 value={tweetContent}
                 onChange={handleTweetContentChange}
                 className="w-full bg-white border border-sky-300 rounded-xl p-3 outline-none resize-none h-24 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition text-sm"
             />
             <div className="flex justify-between items-center text-xs">
-              <span className="text-sky-600">后端将使用您的 Twitter accessToken 发布推文</span>
+              <span className="text-sky-600">{t('modal.backendWillUseTwitterToken')}</span>
               <span className={`font-bold ${tweetContent.length > 260 ? 'text-red-500' : 'text-sky-600'}`}>
-                {tweetContent.length}/280
+                {tweetContent.length}/280 {t('modal.characters')}
               </span>
             </div>
             {!tweetContent.trim() && (
-              <p className="text-xs text-amber-600 mt-1">⚠️ 如果留空，后端将自动生成推文内容</p>
+              <p className="text-xs text-amber-600 mt-1">⚠️ {t('modal.ifEmptyAutoGenerate')}</p>
             )}
           </div>
         )}
 
         <div>
-            <p className="text-xs font-bold text-gray-400 uppercase mb-3 ml-1">Stickers</p>
+            <p className="text-xs font-bold text-gray-400 uppercase mb-3 ml-1">{t('modal.stickers')}</p>
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                 {STICKERS.map(s => (
                     <button
@@ -1136,7 +1138,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
         </div>
 
         <div>
-            <p className="text-xs font-bold text-gray-400 uppercase mb-3 ml-1">Privacy</p>
+            <p className="text-xs font-bold text-gray-400 uppercase mb-3 ml-1">{t('modal.privacy')}</p>
             <div className={`grid ${transactionType === TransactionType.REQUEST ? 'grid-cols-3' : 'grid-cols-3'} gap-2`}>
                 {transactionType === TransactionType.REQUEST ? (
                     <>
@@ -1146,7 +1148,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 ${privacy === Privacy.PUBLIC_X ? 'border-sky-500 bg-sky-50 text-sky-600' : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'}`}
                         >
                             <Twitter className="w-4 h-4" />
-                            <span className="text-[9px] font-bold text-center leading-tight">Public on X</span>
+                            <span className="text-[9px] font-bold text-center leading-tight">{t('modal.publicOnX')}</span>
                         </button>
                         <button 
                             onClick={() => setPrivacy(Privacy.PUBLIC)}
@@ -1154,7 +1156,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 ${privacy === Privacy.PUBLIC ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'}`}
                         >
                             <Globe className="w-4 h-4" />
-                            <span className="text-[9px] font-bold text-center leading-tight">Public in App</span>
+                            <span className="text-[9px] font-bold text-center leading-tight">{t('modal.publicInApp')}</span>
                         </button>
                         <button 
                             onClick={() => setPrivacy(Privacy.FRIENDS)}
@@ -1162,7 +1164,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 ${privacy === Privacy.FRIENDS ? 'border-indigo-500 bg-indigo-50 text-indigo-600' : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'}`}
                         >
                             <Users className="w-4 h-4" />
-                            <span className="text-[9px] font-bold text-center leading-tight">Friends</span>
+                            <span className="text-[9px] font-bold text-center leading-tight">{t('modal.friends')}</span>
                         </button>
                     </>
                 ) : (
@@ -1173,7 +1175,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 ${privacy === Privacy.PUBLIC ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'}`}
                         >
                             <Globe className="w-5 h-5" />
-                            <span className="text-[10px] font-bold">Public</span>
+                            <span className="text-[10px] font-bold">{t('modal.public')}</span>
                         </button>
                         <button 
                             onClick={() => setPrivacy(Privacy.FRIENDS)}
@@ -1181,7 +1183,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 ${privacy === Privacy.FRIENDS ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'}`}
                         >
                             <Users className="w-5 h-5" />
-                            <span className="text-[10px] font-bold">Friends</span>
+                            <span className="text-[10px] font-bold">{t('modal.friends')}</span>
                         </button>
                         <button 
                             onClick={() => setPrivacy(Privacy.PRIVATE)}
@@ -1189,7 +1191,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                                 ${privacy === Privacy.PRIVATE ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'}`}
                         >
                             <Lock className="w-5 h-5" />
-                            <span className="text-[10px] font-bold">Private</span>
+                            <span className="text-[10px] font-bold">{t('modal.private')}</span>
                         </button>
                     </>
                 )}
@@ -1205,7 +1207,7 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
               className="w-full bg-blue-500 text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-500/30 disabled:opacity-50 disabled:shadow-none active:scale-95 transition-all text-lg flex items-center justify-center gap-2"
           >
               {isSubmitting && <Loader className="w-5 h-5 animate-spin" />}
-              {transactionType === TransactionType.PAYMENT ? 'Pay' : 'Request'}
+              {transactionType === TransactionType.PAYMENT ? t('modal.pay') : t('modal.request')}
           </button>
         </div>
       </div>
@@ -1224,13 +1226,13 @@ const OTCActionModalContent: React.FC<ModalContentProps> = ({
                   onClick={() => setTransactionType(TransactionType.REQUEST)}
                   className={`pb-2 border-b-2 transition-colors ${transactionType === TransactionType.REQUEST ? 'border-black text-black' : 'border-transparent text-gray-400'}`}
                 >
-                  Request
+                  {t('modal.request')}
                 </button>
                 <button 
                   onClick={() => setTransactionType(TransactionType.PAYMENT)}
                   className={`pb-2 border-b-2 transition-colors ${transactionType === TransactionType.PAYMENT ? 'border-black text-black' : 'border-transparent text-gray-400'}`}
                 >
-                  Pay
+                  {t('modal.pay')}
                 </button>
              </div>
            ) : (

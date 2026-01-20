@@ -8,8 +8,10 @@ import { Home as HomeIcon, User as UserIcon } from 'lucide-react';
 import OTCActionModal from './components/OTCActionModal';
 import { User, TransactionType } from './utils';
 import { Services } from './services';
+import { useTranslation } from 'react-i18next';
 
 const AppContent: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'home' | 'profile'>('home');
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -44,7 +46,7 @@ const AppContent: React.FC = () => {
     const trimmed = address.trim();
     const isEthAddress = /^0x[a-fA-F0-9]{40}$/.test(trimmed);
     if (!isEthAddress) {
-      alert(`扫描结果不是有效的以太坊地址：\n${trimmed}`);
+      alert(`${t('error.networkError')}: ${t('error.badRequest')}\n${trimmed}`);
       return;
     }
 
@@ -102,7 +104,7 @@ const AppContent: React.FC = () => {
                 className={`flex flex-col items-center justify-center w-16 ${activeTab === 'home' ? 'text-blue-500' : 'text-gray-400'}`}
               >
                 <HomeIcon className="w-6 h-6 mb-1" />
-                <span className="text-[10px] font-medium">Home</span>
+                <span className="text-[10px] font-medium">{t('common.home')}</span>
               </button>
               
               {/* Central Pay/Request Button */}
@@ -117,7 +119,7 @@ const AppContent: React.FC = () => {
                 <div className="w-16 h-16 bg-blue-500 rounded-full shadow-lg shadow-blue-500/40 flex items-center justify-center text-white mb-1 transition-transform group-active:scale-95 border-4 border-white">
                     <span className="text-3xl font-bold">₮</span>
                 </div>
-                <span className="text-[10px] font-medium text-slate-500">Request / Pay</span>
+                <span className="text-[10px] font-medium text-slate-500">{t('common.request')} / {t('common.payment')}</span>
               </button>
 
               {/* Profile Tab */}
@@ -126,7 +128,7 @@ const AppContent: React.FC = () => {
                 className={`flex flex-col items-center justify-center w-16 ${activeTab === 'profile' ? 'text-blue-500' : 'text-gray-400'}`}
               >
                 <UserIcon className="w-6 h-6 mb-1" />
-                <span className="text-[10px] font-medium">Me</span>
+                <span className="text-[10px] font-medium">{t('common.profile')}</span>
               </button>
             </div>
           </nav>

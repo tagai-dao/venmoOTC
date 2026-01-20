@@ -6,6 +6,7 @@ import { X, Check, UserCheck, Loader } from 'lucide-react';
 import { timeAgo } from '../utils';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { MultisigContractService } from '../services/multisigContractService';
+import { useTranslation } from 'react-i18next';
 
 interface BidListModalProps {
   transaction: Transaction;
@@ -15,6 +16,7 @@ interface BidListModalProps {
 
 const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSelectTrader }) => {
   const { currentUser, refreshFeed } = useApp();
+  const { t } = useTranslation();
   const [bids, setBids] = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
   const [selecting, setSelecting] = useState<string | null>(null);
@@ -42,7 +44,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
   // 处理发起者选择交易者（Request 法币场景）
   const handleSelectTrader = async (bid: Bid) => {
     if (!currentUser || !wallets[0]) {
-      alert('请先连接钱包');
+      alert(t('auth.pleaseConnectWallet'));
       return;
     }
 
@@ -59,9 +61,9 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
         ? transaction.amount.toString()
         : (transaction as any).otcOfferAmount?.toString();
 
-      if (!usdtAmount) throw new Error("无法确定 USDT 数量");
+      if (!usdtAmount) throw new Error(t('transaction.insufficientInfo'));
 
-      setStatus('正在调用合约创建多签订单...');
+      setStatus(t('common.processing'));
       
       // 2. 调用合约（发起者存入 USDT）
       const provider = await wallets[0].getEthereumProvider();
@@ -73,7 +75,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
         usdtAmount
       );
 
-      setStatus('订单创建成功，正在同步到服务器...');
+      setStatus(t('common.processing'));
 
       // 3. 同步到后端：先更新交易状态（设置 selectedTraderId）
       await onSelectTrader(bid.userId); // 这一步会将状态改为 SELECTED_TRADER
@@ -86,8 +88,8 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
         onchainOrderId: orderId
       });
 
-      setStatus('同步成功！');
-      alert(`🎉 成功创建多签订单！\n链上 ID: ${orderId}\n状态已更新为：USDT 已托管`);
+      setStatus(t('common.success'));
+      alert(`🎉 ${t('transaction.transactionSuccess')}\n${t('transaction.multisigInfoNotFound')}: ${orderId}`);
       
       // 5. 刷新 feed 以显示最新状态（包括 selectedTraderId 和 USDT_IN_ESCROW 状态）
       await refreshFeed();
@@ -104,13 +106,13 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
   // 处理交易者确认支付 USDT（Request U 场景）
   const handleTraderPayUSDT = async (bid: Bid) => {
     if (!currentUser || !wallets[0]) {
-      alert('请先连接钱包');
+      alert(t('auth.pleaseConnectWallet'));
       return;
     }
 
     // 验证是否是交易者本人
     if (currentUser.id !== bid.userId) {
-      alert('只能确认自己的支付');
+      alert(t('transaction.operationFailed'));
       return;
     }
 
@@ -123,7 +125,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
       // Request U: currency 是 USDT，amount 就是需要存入的 USDT 数量
       const usdtAmount = transaction.amount.toString();
 
-      setStatus('正在调用合约创建多签订单...');
+      setStatus(t('common.processing'));
       
       // 2. 调用合约（交易者存入 USDT，对手是发起者）
       const provider = await wallets[0].getEthereumProvider();
@@ -135,7 +137,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
         usdtAmount
       );
 
-      setStatus('订单创建成功，正在同步到服务器...');
+      setStatus(t('common.processing'));
 
       // 3. 同步到后端：更新交易状态（设置 selectedTraderId）
       await Services.transactions.selectTrader(transaction.id, bid.userId);
@@ -148,8 +150,8 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
         onchainOrderId: orderId
       });
 
-      setStatus('同步成功！');
-      alert(`🎉 成功创建多签订单！\n链上 ID: ${orderId}\n状态已更新为：USDT 已托管`);
+      setStatus(t('common.success'));
+      alert(`🎉 ${t('transaction.transactionSuccess')}\n${t('transaction.multisigInfoNotFound')}: ${orderId}`);
       
       // 5. 刷新 feed 以显示最新状态
       await refreshFeed();
@@ -170,7 +172,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-slate-900" />
-            <h2 className="text-lg font-bold text-slate-900">抢单列表</h2>
+            <h2 className="text-lg font-bold text-slate-900">{t('bidList.bidList')}</h2>
             <span className="text-sm text-gray-500">({bids.length})</span>
           </div>
           <button
@@ -197,8 +199,8 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
           ) : bids.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <UserCheck className="w-12 h-12 text-gray-300 mb-3" />
-              <p className="text-gray-500 font-medium mb-1">还没有人抢单</p>
-              <p className="text-sm text-gray-400">等待交易者抢单...</p>
+              <p className="text-gray-500 font-medium mb-1">{t('bidList.noBidsYet')}</p>
+              <p className="text-sm text-gray-400">{t('bidList.waitingForBids')}</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -236,7 +238,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
                         ) : (
                           <>
                             <Check className="w-4 h-4" />
-                            选择此交易者并锁定 USDT
+                            {t('otc.selectTraderAndLockUSDT')}
                           </>
                         )}
                       </button>
@@ -254,7 +256,7 @@ const BidListModal: React.FC<BidListModalProps> = ({ transaction, onClose, onSel
                         ) : (
                           <>
                             <Check className="w-4 h-4" />
-                            确认支付 USDT
+                            {t('otc.confirmPayUSDT')}
                           </>
                         )}
                       </button>

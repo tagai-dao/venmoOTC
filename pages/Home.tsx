@@ -5,6 +5,7 @@ import { ScanLine, Search, Bell } from 'lucide-react';
 import QRCodeScanner from '../components/QRCodeScanner';
 import NotificationList from '../components/NotificationList';
 import { User, Privacy } from '../utils';
+import { useTranslation } from 'react-i18next';
 
 interface HomeProps {
     onViewUser: (user: User) => void;
@@ -13,6 +14,7 @@ interface HomeProps {
 
 const Home: React.FC<HomeProps> = ({ onViewUser, onScanAddress }) => {
   const { feed, currentUser, unreadCount } = useApp();
+  const { t } = useTranslation();
   const [showScanner, setShowScanner] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -42,6 +44,7 @@ const Home: React.FC<HomeProps> = ({ onViewUser, onScanAddress }) => {
          <button 
             onClick={() => setShowScanner(true)}
             className="text-slate-900 p-2 hover:bg-gray-100 rounded-full transition flex-shrink-0"
+            title={t('common.scan')}
         >
              <ScanLine className="w-6 h-6" />
          </button>
@@ -51,15 +54,16 @@ const Home: React.FC<HomeProps> = ({ onViewUser, onScanAddress }) => {
              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
              <input 
                 type="text" 
-                placeholder="People, groups..." 
+                placeholder={t('common.searchPlaceholder')} 
                 className="w-full bg-gray-100 text-sm rounded-full py-2 pl-9 pr-4 outline-none focus:ring-2 focus:ring-blue-100 transition"
             />
          </div>
          
-         {/* 通知图标 - 放在右侧 */}
+         {/* 通知图标 */}
          <button 
             onClick={() => setShowNotifications(true)}
             className="text-slate-900 p-2 hover:bg-gray-100 rounded-full transition flex-shrink-0 relative"
+            title={t('common.notifications')}
         >
              <Bell className="w-6 h-6" />
              {unreadCount > 0 && (
@@ -74,8 +78,8 @@ const Home: React.FC<HomeProps> = ({ onViewUser, onScanAddress }) => {
       <main>
         {mainFeed.length === 0 ? (
             <div className="p-8 text-center text-gray-500 mt-10">
-                <p>No activity yet.</p>
-                <p className="text-sm">Make a payment to get started!</p>
+                <p>{t('empty.noActivity')}</p>
+                <p className="text-sm">{t('empty.getStarted')}</p>
             </div>
         ) : (
             mainFeed.map((transaction) => (
@@ -95,7 +99,7 @@ const Home: React.FC<HomeProps> = ({ onViewUser, onScanAddress }) => {
             console.log('Scanned QR code:', data);
             const address = data.trim();
             if (!address) {
-              alert('扫描结果为空，请重新尝试');
+              alert(t('empty.emptyScan'));
               return;
             }
             onScanAddress(address);

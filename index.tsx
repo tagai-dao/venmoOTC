@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Buffer } from 'buffer';
+import './i18n/config';
 import App from './App';
 
 // Polyfill Buffer for Privy and other blockchain libs

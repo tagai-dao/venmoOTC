@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
         // 使用 localhost:3000 供本机访问
         // 注意：在某些环境下监听端口需要允许网络权限
         port: 3000,
-        host: '127.0.0.1',
+        host: 'localhost',
       },
       plugins: [react()],
       define: {

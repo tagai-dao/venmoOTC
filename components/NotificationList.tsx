@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Bell, Check } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 
 interface NotificationListProps {
   onClose: () => void;
@@ -9,6 +10,7 @@ interface NotificationListProps {
 
 const NotificationList: React.FC<NotificationListProps> = ({ onClose }) => {
   const { notifications, unreadCount, markNotificationAsRead, markAllNotificationsAsRead } = useApp();
+  const { t } = useTranslation();
 
   const handleMarkAsRead = async (id: string, isRead: boolean) => {
     if (!isRead) {
@@ -26,11 +28,11 @@ const NotificationList: React.FC<NotificationListProps> = ({ onClose }) => {
     try {
       const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
       if (isNaN(date.getTime())) {
-        return '刚刚';
+        return t('common.loading');
       }
       return formatDistanceToNow(date, { addSuffix: true });
     } catch {
-      return '刚刚';
+      return t('common.loading');
     }
   };
 
@@ -47,7 +49,7 @@ const NotificationList: React.FC<NotificationListProps> = ({ onClose }) => {
         <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-slate-900" />
-            <h2 className="text-lg font-bold text-slate-900">通知</h2>
+            <h2 className="text-lg font-bold text-slate-900">{t('common.notifications')}</h2>
             {unreadCount > 0 && (
               <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                 {unreadCount}
@@ -60,7 +62,7 @@ const NotificationList: React.FC<NotificationListProps> = ({ onClose }) => {
                 onClick={handleMarkAllAsRead}
                 className="text-sm text-blue-500 hover:text-blue-600 font-medium"
               >
-                全部已读
+                {t('notifications.markAllRead')}
               </button>
             )}
             <button
@@ -77,8 +79,8 @@ const NotificationList: React.FC<NotificationListProps> = ({ onClose }) => {
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center">
               <Bell className="w-16 h-16 text-gray-300 mb-4" />
-              <p className="text-gray-500 font-medium">暂无通知</p>
-              <p className="text-sm text-gray-400 mt-2">当有新的交易或状态更新时，你会收到通知</p>
+              <p className="text-gray-500 font-medium">{t('notifications.noNotifications')}</p>
+              <p className="text-sm text-gray-400 mt-2">{t('notifications.noNotifications')}</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
