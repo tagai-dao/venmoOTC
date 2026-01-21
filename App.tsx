@@ -97,14 +97,15 @@ const AppContent: React.FC = () => {
       {/* Bottom Navigation - Hide if viewing another user to maximize screen space/focus, or keep it. Keeping it allows quick exit. */}
       {!viewingUser && (
           <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 max-w-md mx-auto safe-bottom">
-            <div className="flex justify-between items-center px-4 sm:px-8 h-16 sm:h-20 pb-2 safe-left safe-right">
+            {/* iOS 上更像“靠中间”的布局：居中 + gap，而不是两侧顶边 */}
+            <div className="flex items-center justify-center gap-10 sm:gap-16 px-4 sm:px-8 h-16 sm:h-20 pb-2 safe-left safe-right">
               {/* Home Tab */}
               <button 
                 onClick={() => setActiveTab('home')}
                 className={`flex flex-col items-center justify-center w-14 sm:w-16 touch-feedback ${activeTab === 'home' ? 'text-blue-500' : 'text-gray-400'}`}
               >
                 <HomeIcon className="w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1" />
-                <span className="text-[9px] sm:text-[10px] font-medium">{t('common.home')}</span>
+                <span className="text-[11px] sm:text-[10px] font-medium">{t('common.home')}</span>
               </button>
               
               {/* Central Pay/Request Button */}
@@ -119,7 +120,7 @@ const AppContent: React.FC = () => {
                 <div className="w-14 h-14 sm:w-16 sm:h-16 bg-blue-500 rounded-full shadow-lg shadow-blue-500/40 flex items-center justify-center text-white mb-0.5 sm:mb-1 transition-transform group-active:scale-95 border-3 sm:border-4 border-white">
                     <span className="text-2xl sm:text-3xl font-bold">₮</span>
                 </div>
-                <span className="text-[9px] sm:text-[10px] font-medium text-slate-500">{t('common.request')} / {t('common.payment')}</span>
+                <span className="text-[11px] sm:text-[10px] font-medium text-slate-500">{t('common.request')} / {t('common.payment')}</span>
               </button>
 
               {/* Profile Tab */}
@@ -128,7 +129,7 @@ const AppContent: React.FC = () => {
                 className={`flex flex-col items-center justify-center w-14 sm:w-16 touch-feedback ${activeTab === 'profile' ? 'text-blue-500' : 'text-gray-400'}`}
               >
                 <UserIcon className="w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1" />
-                <span className="text-[9px] sm:text-[10px] font-medium">{t('common.profile')}</span>
+                <span className="text-[11px] sm:text-[10px] font-medium">{t('common.profile')}</span>
               </button>
             </div>
           </nav>
