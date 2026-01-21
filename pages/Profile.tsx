@@ -899,19 +899,19 @@ const ProfileContent: React.FC<{
   return (
     <div className="pb-20">
        {/* Header */}
-       <div className="bg-white px-6 pt-6 pb-4 border-b">
-          <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center gap-4">
-                  <img src={currentUser.avatar} alt="Profile" className="w-16 h-16 rounded-full border-2 border-white shadow-lg" />
-                  <div>
-                      <h1 className="text-xl font-bold">{currentUser.name}</h1>
-                      <p className="text-slate-500 text-sm">{currentUser.handle}</p>
-                      {currentUser.isVerified && <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] font-bold rounded-full mt-1">Verified X Account</span>}
+       <div className="bg-white px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b safe-top">
+          <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                  <img src={currentUser.avatar} alt="Profile" className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-white shadow-lg flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                      <h1 className="text-lg sm:text-xl font-bold truncate">{currentUser.name}</h1>
+                      <p className="text-slate-500 text-xs sm:text-sm truncate">{currentUser.handle}</p>
+                      {currentUser.isVerified && <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-600 text-[9px] sm:text-[10px] font-bold rounded-full mt-1">Verified X Account</span>}
                   </div>
               </div>
-              <div className="flex gap-2 relative">
-                 <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-full" title={t('common.scan')}>
-                     <QrCode className="w-6 h-6" />
+              <div className="flex gap-1.5 sm:gap-2 relative flex-shrink-0">
+                 <button onClick={() => setShowMyQR(true)} className="p-2 text-gray-600 hover:bg-gray-100 active:bg-gray-200 rounded-full touch-feedback" title={t('common.scan')}>
+                     <QrCode className="w-5 h-5 sm:w-6 sm:h-6" />
                  </button>
                  {/* 测试钱包签名按钮 - 已隐藏 */}
                  {/* {ready && authenticated && (
@@ -1037,9 +1037,9 @@ const ProfileContent: React.FC<{
               </div>
           </div>
 
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-4 text-white shadow-xl relative">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl sm:rounded-2xl p-3 sm:p-4 text-white shadow-xl relative">
              {/* Privy 钱包连接状态指示器 */}
-             <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+             <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex items-center gap-1.5 sm:gap-2 z-20">
                  {ready && authenticated ? (
                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/20 rounded-full border border-green-400/30">
                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -1082,19 +1082,19 @@ const ProfileContent: React.FC<{
                  )}
              </div>
              <div className="flex justify-between items-center mb-2">
-                 <span className="text-slate-400 text-sm font-medium flex items-center gap-2">
-                     <Wallet className="w-4 h-4" /> {t('wallet.walletBalance')}
-                     {isLoadingPrices && <Loader className="w-3 h-3 animate-spin" />}
+                 <span className="text-slate-400 text-xs sm:text-sm font-medium flex items-center gap-1.5 sm:gap-2">
+                     <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> {t('wallet.walletBalance')}
+                     {isLoadingPrices && <Loader className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin" />}
                  </span>
              </div>
              <div className="flex flex-col gap-1">
-                 <div className="flex items-baseline gap-4">
-                    <span className="text-3xl font-bold">{formatCurrency(walletBalance[Currency.USDT], Currency.USDT)}</span>
-                    <span className="text-xl font-semibold opacity-90">BNB {walletBalance.bnb?.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 }) || '0.0000'}</span>
+                 <div className="flex items-baseline gap-2 sm:gap-4 flex-wrap">
+                    <span className="text-2xl sm:text-3xl font-bold">{formatCurrency(walletBalance[Currency.USDT], Currency.USDT)}</span>
+                    <span className="text-lg sm:text-xl font-semibold opacity-90">BNB {walletBalance.bnb?.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 }) || '0.0000'}</span>
                  </div>
-                 <div className="flex gap-4 mt-2 flex-wrap">
-                    <span className="text-sm opacity-70">{formatCurrency(convertedBalances[Currency.NGN], Currency.NGN)}</span>
-                    <span className="text-sm opacity-70">{formatCurrency(convertedBalances[Currency.VES], Currency.VES)}</span>
+                 <div className="flex gap-3 sm:gap-4 mt-2 flex-wrap">
+                    <span className="text-xs sm:text-sm opacity-70">{formatCurrency(convertedBalances[Currency.NGN], Currency.NGN)}</span>
+                    <span className="text-xs sm:text-sm opacity-70">{formatCurrency(convertedBalances[Currency.VES], Currency.VES)}</span>
                  </div>
                  {/* 显示钱包地址 */}
                  <div className="mt-3 pt-3 border-t border-slate-700/50">
@@ -1150,21 +1150,21 @@ const ProfileContent: React.FC<{
        )} */}
 
        {/* Tabs */}
-       <div className="px-4 mt-6">
-           <div className="flex items-center gap-8 border-b border-gray-100">
+       <div className="px-4 sm:px-4 mt-4 sm:mt-6">
+           <div className="flex items-center gap-6 sm:gap-8 border-b border-gray-100">
                <button
                  onClick={() => setActiveTab('activity')}
-                 className={`pb-3 text-sm font-bold transition-colors ${activeTab === 'activity' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 hover:text-gray-600'}`}
+                 className={`pb-2.5 sm:pb-3 text-xs sm:text-sm font-bold transition-colors touch-feedback px-1 -mx-1 ${activeTab === 'activity' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 active:text-gray-600'}`}
                >
                  {t('tabs.yourActivity')}
                </button>
                <button
                  onClick={() => setActiveTab('requests')}
-                 className={`pb-3 text-sm font-bold transition-colors relative ${activeTab === 'requests' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 hover:text-gray-600'}`}
+                 className={`pb-2.5 sm:pb-3 text-xs sm:text-sm font-bold transition-colors relative touch-feedback px-1 -mx-1 ${activeTab === 'requests' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-gray-400 active:text-gray-600'}`}
                >
                  {t('tabs.requests')}
                  {unreadCount > 0 && (
-                     <span className="absolute -top-1 -right-5 bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1 rounded-full flex items-center justify-center border-2 border-white">
+                     <span className="absolute -top-0.5 -right-4 sm:-right-5 bg-red-500 text-white text-[9px] sm:text-[10px] h-4 sm:h-5 min-w-[16px] sm:min-w-[20px] px-0.5 sm:px-1 rounded-full flex items-center justify-center border-2 border-white">
                          {unreadCount}
                      </span>
                  )}

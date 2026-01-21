@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     <title>TagPay</title>
     <style>
       /* Hide scrollbar for Chrome, Safari and Opera */
@@ -13,6 +13,32 @@
       .no-scrollbar {
           -ms-overflow-style: none;  /* IE and Edge */
           scrollbar-width: none;  /* Firefox */
+      }
+      
+      /* Mobile optimizations */
+      * {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+      }
+      
+      /* Improve touch targets on mobile */
+      button, a, [role="button"] {
+        min-height: 44px;
+        min-width: 44px;
+      }
+      
+      /* Prevent text selection on buttons */
+      button {
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      
+      /* Safe area support for iOS */
+      @supports (padding: max(0px)) {
+        body {
+          padding-left: env(safe-area-inset-left);
+          padding-right: env(safe-area-inset-right);
+        }
       }
     </style>
   <link rel="stylesheet" href="/index.css">

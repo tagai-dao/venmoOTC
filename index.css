@@ -2,4 +2,57 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 基础样式 - 如果需要可以添加自定义样式 */
+/* 基础样式 - 移动端优化 */
+@layer base {
+  html {
+    /* 改善移动端滚动性能 */
+    -webkit-overflow-scrolling: touch;
+    /* 防止 iOS Safari 的橡皮筋效果 */
+    overscroll-behavior-y: contain;
+  }
+  
+  body {
+    /* 防止移动端双击缩放 */
+    touch-action: manipulation;
+    /* 改善字体渲染 */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* 移动端响应式工具类 */
+@layer utilities {
+  /* 安全区域适配 */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* 移动端优化的触摸反馈 */
+  .touch-feedback:active {
+    opacity: 0.7;
+    transform: scale(0.98);
+  }
+  
+  /* 改善移动端输入框体验 */
+  input, textarea, select {
+    font-size: 16px; /* 防止 iOS 自动缩放 */
+  }
+  
+  /* 移动端优化的滚动容器 */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}

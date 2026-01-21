@@ -39,35 +39,35 @@ const Home: React.FC<HomeProps> = ({ onViewUser, onScanAddress }) => {
   return (
     <div className="pb-20">
       {/* Top Bar */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-3 safe-top">
          {/* 扫描图标 - 移到左侧 */}
          <button 
             onClick={() => setShowScanner(true)}
-            className="text-slate-900 p-2 hover:bg-gray-100 rounded-full transition flex-shrink-0"
+            className="text-slate-900 p-2.5 sm:p-2 hover:bg-gray-100 active:bg-gray-200 rounded-full transition flex-shrink-0 touch-feedback"
             title={t('common.scan')}
         >
-             <ScanLine className="w-6 h-6" />
+             <ScanLine className="w-5 h-5 sm:w-6 sm:h-6" />
          </button>
          
          {/* 搜索栏 */}
          <div className="relative flex-1 max-w-none">
-             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+             <Search className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400" />
              <input 
                 type="text" 
                 placeholder={t('common.searchPlaceholder')} 
-                className="w-full bg-gray-100 text-sm rounded-full py-2 pl-9 pr-4 outline-none focus:ring-2 focus:ring-blue-100 transition"
+                className="w-full bg-gray-100 text-xs sm:text-sm rounded-full py-2 sm:py-2 pl-8 sm:pl-9 pr-3 sm:pr-4 outline-none focus:ring-2 focus:ring-blue-100 transition"
             />
          </div>
          
          {/* 通知图标 */}
          <button 
             onClick={() => setShowNotifications(true)}
-            className="text-slate-900 p-2 hover:bg-gray-100 rounded-full transition flex-shrink-0 relative"
+            className="text-slate-900 p-2.5 sm:p-2 hover:bg-gray-100 active:bg-gray-200 rounded-full transition flex-shrink-0 relative touch-feedback"
             title={t('common.notifications')}
         >
-             <Bell className="w-6 h-6" />
+             <Bell className="w-5 h-5 sm:w-6 sm:h-6" />
              {unreadCount > 0 && (
-               <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+               <span className="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-red-500 text-white text-[9px] sm:text-[10px] font-bold rounded-full flex items-center justify-center">
                  {unreadCount > 9 ? '9+' : unreadCount}
                </span>
              )}

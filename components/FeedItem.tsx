@@ -930,22 +930,22 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
   };
 
   return (
-    <div className="bg-white p-4 border-b border-gray-100 first:border-t-0 hover:bg-gray-50/50 transition-colors">
-      <div className="flex gap-3">
-        <div className="flex-shrink-0 cursor-pointer" onClick={() => onUserClick && onUserClick(transaction.fromUser)}>
-          <img src={transaction.fromUser.avatar} className="w-10 h-10 rounded-full border border-gray-200 object-cover shadow-sm" alt={transaction.fromUser.name} />
+    <div className="bg-white p-3 sm:p-4 border-b border-gray-100 first:border-t-0 hover:bg-gray-50/50 active:bg-gray-50 transition-colors">
+      <div className="flex gap-2.5 sm:gap-3">
+        <div className="flex-shrink-0 cursor-pointer touch-feedback" onClick={() => onUserClick && onUserClick(transaction.fromUser)}>
+          <img src={transaction.fromUser.avatar} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-gray-200 object-cover shadow-sm" alt={transaction.fromUser.name} />
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-start">
-            <div className="text-sm">
-              <span className="font-bold text-slate-900 cursor-pointer hover:underline" onClick={() => onUserClick && onUserClick(transaction.fromUser)}>{transaction.fromUser.name}</span>
-              <span className="text-slate-500 px-1">{transaction.type === TransactionType.PAYMENT ? t('feed.paid') : t('feed.requested')}</span>
+            <div className="text-xs sm:text-sm flex flex-wrap items-baseline gap-0.5 sm:gap-1">
+              <span className="font-bold text-slate-900 cursor-pointer hover:underline touch-feedback" onClick={() => onUserClick && onUserClick(transaction.fromUser)}>{transaction.fromUser.name}</span>
+              <span className="text-slate-500">{transaction.type === TransactionType.PAYMENT ? t('feed.paid') : t('feed.requested')}</span>
               <span className="font-bold text-slate-900">
                 {transaction.selectedTraderId ? (isToMe ? t('feed.you') : t('feed.trader')) : (transaction.toUser ? transaction.toUser.name : t('feed.everyone'))}
               </span>
             </div>
-            <div className="text-xs text-gray-400 whitespace-nowrap ml-2">{timeAgo(transaction.timestamp)}</div>
+            <div className="text-[10px] sm:text-xs text-gray-400 whitespace-nowrap ml-1 sm:ml-2">{timeAgo(transaction.timestamp)}</div>
           </div>
 
           <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 mb-1.5">
@@ -986,17 +986,17 @@ const FeedItem: React.FC<FeedItemProps> = ({ transaction, onUserClick }) => {
 
           {renderOTCAction()}
 
-          <div className="flex items-center gap-6 mt-3 pt-3 border-t border-gray-50">
+          <div className="flex items-center gap-4 sm:gap-6 mt-3 pt-3 border-t border-gray-50">
             <button 
               onClick={async (e) => { e.stopPropagation(); await handleLike(); }}
-              className={`flex items-center gap-1.5 text-xs font-bold transition-colors ${hasLiked ? 'text-red-500' : 'text-slate-400 hover:text-red-500'}`}
+              className={`flex items-center gap-1.5 text-xs font-bold transition-colors touch-feedback py-1 px-1 -mx-1 rounded ${hasLiked ? 'text-red-500' : 'text-slate-400 active:text-red-500'}`}
             >
               <Heart className={`w-4 h-4 ${hasLiked ? 'fill-red-500 text-red-500' : ''}`} />
               {transaction.likes > 0 ? transaction.likes : t('feed.like')}
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); setShowCommentInput(!showCommentInput); }}
-              className={`flex items-center gap-1.5 text-xs font-bold transition-colors ${showCommentInput ? 'text-blue-500' : 'text-slate-400 hover:text-blue-500'}`}
+              className={`flex items-center gap-1.5 text-xs font-bold transition-colors touch-feedback py-1 px-1 -mx-1 rounded ${showCommentInput ? 'text-blue-500' : 'text-slate-400 active:text-blue-500'}`}
             >
               <MessageCircle className="w-4 h-4" />
               {transaction.comments > 0 ? transaction.comments : t('feed.comment')}

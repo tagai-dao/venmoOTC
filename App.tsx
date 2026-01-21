@@ -76,9 +76,9 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen bg-white shadow-2xl relative overflow-hidden flex flex-col">
+    <div className="max-w-md mx-auto min-h-screen bg-white shadow-2xl relative overflow-hidden flex flex-col safe-left safe-right">
       {/* Page Content */}
-      <div className="flex-1 overflow-y-auto no-scrollbar">
+      <div className="flex-1 overflow-y-auto no-scrollbar mobile-scroll">
         {viewingUser ? (
             <UserProfile user={viewingUser} onBack={handleBackFromUser} />
         ) : (
@@ -96,15 +96,15 @@ const AppContent: React.FC = () => {
 
       {/* Bottom Navigation - Hide if viewing another user to maximize screen space/focus, or keep it. Keeping it allows quick exit. */}
       {!viewingUser && (
-          <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 max-w-md mx-auto">
-            <div className="flex justify-between items-center px-8 h-20 pb-2">
+          <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 max-w-md mx-auto safe-bottom">
+            <div className="flex justify-between items-center px-4 sm:px-8 h-16 sm:h-20 pb-2 safe-left safe-right">
               {/* Home Tab */}
               <button 
                 onClick={() => setActiveTab('home')}
-                className={`flex flex-col items-center justify-center w-16 ${activeTab === 'home' ? 'text-blue-500' : 'text-gray-400'}`}
+                className={`flex flex-col items-center justify-center w-14 sm:w-16 touch-feedback ${activeTab === 'home' ? 'text-blue-500' : 'text-gray-400'}`}
               >
-                <HomeIcon className="w-6 h-6 mb-1" />
-                <span className="text-[10px] font-medium">{t('common.home')}</span>
+                <HomeIcon className="w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1" />
+                <span className="text-[9px] sm:text-[10px] font-medium">{t('common.home')}</span>
               </button>
               
               {/* Central Pay/Request Button */}
@@ -114,21 +114,21 @@ const AppContent: React.FC = () => {
                   setPayInitialType(TransactionType.REQUEST);
                   setShowPayModal(true);
                 }}
-                className="flex flex-col items-center justify-center -mt-8 group"
+                className="flex flex-col items-center justify-center -mt-6 sm:-mt-8 group touch-feedback"
               >
-                <div className="w-16 h-16 bg-blue-500 rounded-full shadow-lg shadow-blue-500/40 flex items-center justify-center text-white mb-1 transition-transform group-active:scale-95 border-4 border-white">
-                    <span className="text-3xl font-bold">₮</span>
+                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-blue-500 rounded-full shadow-lg shadow-blue-500/40 flex items-center justify-center text-white mb-0.5 sm:mb-1 transition-transform group-active:scale-95 border-3 sm:border-4 border-white">
+                    <span className="text-2xl sm:text-3xl font-bold">₮</span>
                 </div>
-                <span className="text-[10px] font-medium text-slate-500">{t('common.request')} / {t('common.payment')}</span>
+                <span className="text-[9px] sm:text-[10px] font-medium text-slate-500">{t('common.request')} / {t('common.payment')}</span>
               </button>
 
               {/* Profile Tab */}
               <button 
                 onClick={() => setActiveTab('profile')}
-                className={`flex flex-col items-center justify-center w-16 ${activeTab === 'profile' ? 'text-blue-500' : 'text-gray-400'}`}
+                className={`flex flex-col items-center justify-center w-14 sm:w-16 touch-feedback ${activeTab === 'profile' ? 'text-blue-500' : 'text-gray-400'}`}
               >
-                <UserIcon className="w-6 h-6 mb-1" />
-                <span className="text-[10px] font-medium">{t('common.profile')}</span>
+                <UserIcon className="w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1" />
+                <span className="text-[9px] sm:text-[10px] font-medium">{t('common.profile')}</span>
               </button>
             </div>
           </nav>
