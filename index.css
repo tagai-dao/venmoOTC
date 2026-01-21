@@ -9,6 +9,9 @@
     -webkit-overflow-scrolling: touch;
     /* 防止 iOS Safari 的橡皮筋效果 */
     overscroll-behavior-y: contain;
+    /* 防止 iOS 自动“字体放大/缩小”导致布局跳动 */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   
   body {
@@ -17,6 +20,20 @@
     /* 改善字体渲染 */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+    iOS Safari: 当 input/textarea 的字体 < 16px 时，聚焦会触发页面自动 zoom，
+    造成“整体变大、超出屏幕”的体验。
+    这里用 !important 覆盖 Tailwind 的 text-xs/text-sm，避免自动 zoom。
+  */
+  @supports (-webkit-touch-callout: none) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+      line-height: 1.25rem; /* 20px */
+    }
   }
 }
 
