@@ -15,8 +15,8 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
     
     const filters = {
       userId: userId ? String(userId) : undefined,
-      type: type ? type as TransactionType : undefined,
-      privacy: privacy ? privacy as Privacy : undefined,
+      type: type && Object.values(TransactionType).includes(type as TransactionType) ? type as TransactionType : undefined,
+      privacy: privacy && Object.values(Privacy).includes(privacy as Privacy) ? privacy as Privacy : undefined,
     };
     
     const transactions = await TransactionRepository.findAll(filters);
@@ -43,7 +43,12 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+
+    // Verify the authenticated user matches the fromUser in the transaction
+    if (transaction.fromUser?.id && transaction.fromUser.id !== userId) {
+      return res.status(403).json({ error: 'Forbidden: cannot create transaction on behalf of another user' });
+    }
+
     console.log('📝 Creating transaction:', JSON.stringify({
       type: transaction.type,
       amount: transaction.amount,
@@ -77,8 +82,6 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
           console.log('🔍 Retrieved Twitter accessToken from database:', {
             userId,
             hasToken: !!twitterAccessToken,
-            tokenLength: twitterAccessToken?.length || 0,
-            tokenPreview: twitterAccessToken ? twitterAccessToken.substring(0, 30) + '...' : null,
           });
           
           // 如果 token 为空，检查数据库中是否有该用户
@@ -222,11 +225,6 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
 
             // 使用有效的 Twitter accessToken 发布推文
             console.log('🔑 Using user Twitter accessToken to post tweet...');
-            console.log('🔑 AccessToken details:', {
-              hasToken: !!validAccessToken,
-              tokenLength: validAccessToken?.length || 0,
-              tokenPreview: validAccessToken ? validAccessToken.substring(0, 30) + '...' : null,
-            });
             
             try {
               const tweetResult = await TwitterService.postTweet(finalTweetContent, validAccessToken);
@@ -329,10 +327,25 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { updates } = req.body as UpdateTransactionRequest;
-    
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: { message: 'Unauthorized' } });
+    }
+
     // 获取旧交易状态（用于检测状态变化）
     const oldTransaction = await TransactionRepository.findById(id);
     const oldState = oldTransaction?.otcState;
+
+    // Only the initiator (fromUser) or selected counterparty may update the transaction
+    if (
+      oldTransaction &&
+      oldTransaction.fromUser?.id !== userId &&
+      oldTransaction.selectedTraderId !== userId &&
+      oldTransaction.toUser?.id !== userId
+    ) {
+      return res.status(403).json({ error: { message: 'Forbidden: not authorized to update this transaction' } });
+    }
     
     const transaction = await TransactionRepository.update(id, updates);
     

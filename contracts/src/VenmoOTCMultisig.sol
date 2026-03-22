@@ -15,9 +15,21 @@ interface IERC20 {
  * @dev 这是一个 2/2 多签合约，用于 OTC 交易中的 USDT 托管
  */
 contract VenmoOTCMultisig {
-    
+
     enum OrderStatus { OPEN, EXECUTED, CANCELLED }
     enum Choice { NONE, INITIATOR, COUNTERPARTY }
+
+    // Reentrancy guard
+    uint256 private _reentrancyStatus;
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    modifier nonReentrant() {
+        require(_reentrancyStatus != _ENTERED, "ReentrancyGuard: reentrant call");
+        _reentrancyStatus = _ENTERED;
+        _;
+        _reentrancyStatus = _NOT_ENTERED;
+    }
 
     struct Order {
         address initiator;      // 发起方 (用户 A)
@@ -41,6 +53,7 @@ contract VenmoOTCMultisig {
 
     constructor(address _usdtToken) {
         usdtToken = IERC20(_usdtToken);
+        _reentrancyStatus = _NOT_ENTERED;
     }
 
     /**
@@ -48,7 +61,7 @@ contract VenmoOTCMultisig {
      * @param _counterparty 对手方地址
      * @param _amount USDT 数量
      */
-    function createOrder(address _counterparty, uint256 _amount) external returns (uint256) {
+    function createOrder(address _counterparty, uint256 _amount) external nonReentrant returns (uint256) {
         require(_counterparty != address(0), "Invalid counterparty address");
         require(_counterparty != msg.sender, "Cannot trade with yourself");
         require(_amount > 0, "Amount must be greater than 0");
@@ -72,7 +85,7 @@ contract VenmoOTCMultisig {
      * @param _orderId 订单 ID
      * @param _choice 目的地选择 (INITIATOR 或 COUNTERPARTY)
      */
-    function signOrder(uint256 _orderId, Choice _choice) external {
+    function signOrder(uint256 _orderId, Choice _choice) external nonReentrant {
         Order storage order = orders[_orderId];
         require(order.status == OrderStatus.OPEN, "Order not open");
         require(_choice != Choice.NONE, "Invalid choice");
@@ -102,7 +115,7 @@ contract VenmoOTCMultisig {
      * @param _orderId 订单 ID
      * @param _newChoice 新的目的地选择
      */
-    function updateChoice(uint256 _orderId, Choice _newChoice) external {
+    function updateChoice(uint256 _orderId, Choice _newChoice) external nonReentrant {
         Order storage order = orders[_orderId];
         require(order.status == OrderStatus.OPEN, "Order not open");
         require(_newChoice != Choice.NONE, "Invalid choice");

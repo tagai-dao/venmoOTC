@@ -22,6 +22,9 @@ export const getBalance = async (req: Request, res: Response) => {
     
     console.log(`📊 Querying balance for ${address}, currency: ${currency}`);
     
+    if (currency && !Object.values(Currency).includes(currency as Currency) && currency !== 'BNB') {
+      return res.status(400).json({ error: { message: `Invalid currency: ${currency}` } });
+    }
     const currencyEnum = currency as Currency;
     let balance: number;
 

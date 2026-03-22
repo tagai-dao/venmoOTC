@@ -115,9 +115,6 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
         updates.twitterRefreshToken = twitterRefreshToken;
         updates.twitterTokenExpiresAt = Math.floor(Date.now() / 1000) + 7200;
         console.log('📝 Twitter accessToken provided, will be stored/updated');
-        console.log('🔑 AccessToken (first 30 chars):', twitterAccessToken.substring(0, 30) + '...');
-        console.log('🔑 AccessToken length:', twitterAccessToken.length);
-        console.log('🔑 AccessToken ends with:', twitterAccessToken.substring(twitterAccessToken.length - 10));
       } else {
         // 传递空字符串或 null，清除 accessToken
         updates.twitterAccessToken = null;
@@ -150,16 +147,10 @@ export const loginWithPrivy = async (req: Request, res: Response) => {
             if (storedToken) {
               console.log('✅ Verified: Twitter accessToken stored successfully');
               console.log('✅ User ID:', user.id);
-              console.log('✅ Stored token length:', storedToken.length);
-              console.log('✅ Stored token preview:', storedToken.substring(0, 30) + '...');
-              console.log('✅ Stored token ends with:', storedToken.substring(storedToken.length - 10));
             } else {
               console.error('❌ ERROR: Twitter accessToken was NOT stored correctly!');
               console.error('❌ User ID:', user.id);
               console.error('❌ User handle:', user.handle);
-              console.error('❌ User wallet address:', user.walletAddress);
-              console.error('❌ Expected token length:', (updates as any).twitterAccessToken?.length);
-              console.error('❌ Expected token preview:', (updates as any).twitterAccessToken?.substring(0, 30) + '...');
               
               // 尝试直接查询数据库
               try {
