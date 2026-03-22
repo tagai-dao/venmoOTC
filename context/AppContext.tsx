@@ -206,7 +206,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const token = localStorage.getItem('auth_token');
           
           if (userStr && token) {
-              const user = JSON.parse(userStr);
+              let user;
+              try {
+                user = JSON.parse(userStr);
+              } catch {
+                console.error('Failed to parse user data from localStorage, clearing invalid data');
+                localStorage.removeItem('current_user');
+                localStorage.removeItem('auth_token');
+                throw new Error('Corrupted user data in localStorage. Please login again.');
+              }
               setCurrentUser(user);
               setIsAuthenticated(true);
               // 登录后刷新 feed 和通知

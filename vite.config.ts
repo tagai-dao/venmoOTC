@@ -13,8 +13,8 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        // WARNING: Do NOT expose secret API keys here — they will be embedded in the client bundle.
+        // GEMINI_API_KEY and similar secrets must be called via a secure backend proxy endpoint.
       },
       resolve: {
         alias: {

@@ -22,14 +22,7 @@ export class TwitterService {
       }
 
       console.log('🐦 Preparing to post tweet to Twitter API v2...');
-      console.log('📝 Tweet content:', content);
       console.log('📝 Tweet content length:', content.length);
-      console.log('🔑 AccessToken details:', {
-        hasToken: !!accessToken,
-        tokenLength: accessToken.length,
-        tokenPreview: accessToken.substring(0, 30) + '...',
-        tokenEndsWith: accessToken.substring(accessToken.length - 10),
-      });
 
       // 构建请求头
       const headers: Record<string, string> = {
@@ -41,7 +34,6 @@ export class TwitterService {
         url: `${config.xApi.apiBase}/tweets`,
         method: 'POST',
         hasAuthHeader: !!headers['Authorization'],
-        authHeaderPreview: headers['Authorization'].substring(0, 40) + '...',
       });
 
       // 调用 Twitter API v2 发布推文
